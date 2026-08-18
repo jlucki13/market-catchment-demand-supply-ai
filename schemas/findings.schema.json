@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/findings.schema.json",
+  "title": "Findings",
+  "description": "Structured-output contract for the synthesis stage (Fable 5). Every numeric assertion must carry a source_ref naming a computed field, which provenance.py verifies before the memo renders.",
+  "type": "object",
+  "required": ["headline", "flags", "claim_verdicts", "confidence_overall"],
+  "additionalProperties": false,
+  "properties": {
+    "headline": { "type": "string", "maxLength": 300 },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "statement", "evidence", "confidence", "falsifier"],
+        "additionalProperties": false,
+        "properties": {
+          "severity":  { "type": "string", "enum": ["critical", "material", "watch", "favorable"] },
+          "statement": { "type": "string", "maxLength": 600 },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["source_ref", "value"],
+              "additionalProperties": false,
+              "properties": {
+                "source_ref": { "type": "string", "description": "Dotted path into the scorecard, e.g. demand.qualified_households.value" },
+                "value":      { "type": ["number", "string"] },
+                "note":       { "type": "string" }
+              }
+            }
+          },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "falsifier": {
+            "type": "string",
+            "description": "What observation would overturn this flag. Required so every flag is checkable rather than merely asserted.",
+            "maxLength": 400
+          }
+        }
+      }
+    },
+    "claim_verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "verdict", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "claim_id": { "type": "string" },
+          "verdict":  { "type": "string", "enum": ["supported", "partially_supported", "contradicted", "untestable"] },
+          "computed_actual": { "type": ["number", "string", "null"] },
+          "gap":       { "type": ["number", "string", "null"] },
+          "rationale": { "type": "string", "maxLength": 600 },
+          "tested_against": { "type": ["string", "null"], "description": "The source_ref this verdict was computed from. Null only when verdict is untestable." }
+        }
+      }
+    },
+    "underserved_pockets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "centroid":    { "type": ["object", "null"], "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+          "confidence":  { "type": "string", "enum": ["high", "medium", "low"] }
+        }
+      }
+    },
+    "data_gaps": {
+      "type": "array",
+      "description": "What the analysis could not see. Stated up front rather than buried, because the gaps are what a reader most needs to know before trusting the score.",
+      "items": { "type": "string" }
+    },
+    "confidence_overall": { "type": "string", "enum": ["high", "medium", "low"] },
+    "memo_markdown": { "type": "string", "description": "The written memo body." }
+  }
+}

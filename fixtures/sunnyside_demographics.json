@@ -1,0 +1,254 @@
+{
+  "households": {
+    "value": 45580,
+    "moe": 2287.6
+  },
+  "distributions": {
+    "household_income": [
+      {
+        "band": "Less than $10,000",
+        "min": null,
+        "max": 9999,
+        "estimate": {
+          "value": 2140,
+          "moe": 398.1
+        }
+      },
+      {
+        "band": "$10,000 to $14,999",
+        "min": 10000,
+        "max": 14999,
+        "estimate": {
+          "value": 1520,
+          "moe": 314.3
+        }
+      },
+      {
+        "band": "$15,000 to $19,999",
+        "min": 15000,
+        "max": 19999,
+        "estimate": {
+          "value": 1480,
+          "moe": 277.3
+        }
+      },
+      {
+        "band": "$20,000 to $24,999",
+        "min": 20000,
+        "max": 24999,
+        "estimate": {
+          "value": 1610,
+          "moe": 343.1
+        }
+      },
+      {
+        "band": "$25,000 to $29,999",
+        "min": 25000,
+        "max": 29999,
+        "estimate": {
+          "value": 1550,
+          "moe": 285.9
+        }
+      },
+      {
+        "band": "$30,000 to $34,999",
+        "min": 30000,
+        "max": 34999,
+        "estimate": {
+          "value": 1690,
+          "moe": 357.0
+        }
+      },
+      {
+        "band": "$35,000 to $39,999",
+        "min": 35000,
+        "max": 39999,
+        "estimate": {
+          "value": 1720,
+          "moe": 330.6
+        }
+      },
+      {
+        "band": "$40,000 to $44,999",
+        "min": 40000,
+        "max": 44999,
+        "estimate": {
+          "value": 1800,
+          "moe": 389.2
+        }
+      },
+      {
+        "band": "$45,000 to $49,999",
+        "min": 45000,
+        "max": 49999,
+        "estimate": {
+          "value": 1760,
+          "moe": 350.3
+        }
+      },
+      {
+        "band": "$50,000 to $59,999",
+        "min": 50000,
+        "max": 59999,
+        "estimate": {
+          "value": 3410,
+          "moe": 564.8
+        }
+      },
+      {
+        "band": "$60,000 to $74,999",
+        "min": 60000,
+        "max": 74999,
+        "estimate": {
+          "value": 4280,
+          "moe": 749.8
+        }
+      },
+      {
+        "band": "$75,000 to $99,999",
+        "min": 75000,
+        "max": 99999,
+        "estimate": {
+          "value": 5960,
+          "moe": 1098.7
+        }
+      },
+      {
+        "band": "$100,000 to $124,999",
+        "min": 100000,
+        "max": 124999,
+        "estimate": {
+          "value": 5120,
+          "moe": 754.2
+        }
+      },
+      {
+        "band": "$125,000 to $149,999",
+        "min": 125000,
+        "max": 149999,
+        "estimate": {
+          "value": 3640,
+          "moe": 569.0
+        }
+      },
+      {
+        "band": "$150,000 to $199,999",
+        "min": 150000,
+        "max": 199999,
+        "estimate": {
+          "value": 4010,
+          "moe": 793.8
+        }
+      },
+      {
+        "band": "$200,000 or more",
+        "min": 200000,
+        "max": null,
+        "estimate": {
+          "value": 3890,
+          "moe": 760.0
+        }
+      }
+    ],
+    "tenure": [
+      {
+        "band": "owner_occupied",
+        "min": null,
+        "max": null,
+        "estimate": {
+          "value": 11851,
+          "moe": 2365.1
+        }
+      },
+      {
+        "band": "renter_occupied",
+        "min": null,
+        "max": null,
+        "estimate": {
+          "value": 33729,
+          "moe": 5468.2
+        }
+      }
+    ]
+  },
+  "block_groups": [
+    {
+      "geoid": "36081000000",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    },
+    {
+      "geoid": "36081000001",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    },
+    {
+      "geoid": "36081000002",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    },
+    {
+      "geoid": "36081000003",
+      "overlap_fraction": 0.62,
+      "weight_method": "population_weighted",
+      "fully_contained": false
+    },
+    {
+      "geoid": "36081000004",
+      "overlap_fraction": 0.41,
+      "weight_method": "population_weighted",
+      "fully_contained": false
+    },
+    {
+      "geoid": "36081000005",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    },
+    {
+      "geoid": "36081000006",
+      "overlap_fraction": 0.88,
+      "weight_method": "population_weighted",
+      "fully_contained": false
+    },
+    {
+      "geoid": "36081000007",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    },
+    {
+      "geoid": "36081000008",
+      "overlap_fraction": 0.33,
+      "weight_method": "population_weighted",
+      "fully_contained": false
+    },
+    {
+      "geoid": "36081000009",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    },
+    {
+      "geoid": "36081000010",
+      "overlap_fraction": 0.75,
+      "weight_method": "population_weighted",
+      "fully_contained": false
+    },
+    {
+      "geoid": "36081000011",
+      "overlap_fraction": 1.0,
+      "weight_method": "population_weighted",
+      "fully_contained": true
+    }
+  ],
+  "source": {
+    "dataset": "acs/acs5",
+    "vintage": 2023,
+    "confidence_level": 0.9,
+    "retrieved_at": "2026-08-18T14:03:00+00:00"
+  }
+}

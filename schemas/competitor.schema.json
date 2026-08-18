@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/competitor.schema.json",
+  "title": "Competitor",
+  "description": "One competing location. Content fields are transient by Google Maps ToS: only `place_id` and the derived judgment fields may be persisted past a run. See docs/data-sources.md.",
+  "type": "object",
+  "required": ["place_id", "persistable"],
+  "additionalProperties": false,
+  "properties": {
+    "place_id": { "type": "string", "description": "Storable indefinitely under Google Maps ToS." },
+    "persistable": {
+      "type": "boolean",
+      "description": "Marks whether this record has had its transient content stripped for storage."
+    },
+    "name":            { "type": ["string", "null"] },
+    "formatted_address": { "type": ["string", "null"] },
+    "location":        { "type": ["object", "null"], "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+    "primary_type":    { "type": ["string", "null"] },
+    "types":           { "type": "array", "items": { "type": "string" } },
+    "rating":          { "type": ["number", "null"], "minimum": 1, "maximum": 5 },
+    "user_rating_count": { "type": ["integer", "null"], "minimum": 0 },
+    "price_level":     { "type": ["string", "null"], "enum": ["PRICE_LEVEL_FREE", "PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE", "PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE", null] },
+    "business_status": { "type": ["string", "null"] },
+    "open_24h":        { "type": ["boolean", "null"] },
+
+    "drive_time_minutes": { "type": ["number", "null"], "minimum": 0 },
+    "drive_distance_m":   { "type": ["number", "null"], "minimum": 0 },
+    "straight_line_km":   { "type": ["number", "null"], "minimum": 0 },
+    "detour_ratio": {
+      "type": ["number", "null"],
+      "description": "drive distance / straight-line distance. Above ~1.6 means a barrier (river, highway, one-way grid) sits between here and the target, which is the whole reason drive time replaces radius."
+    },
+
+    "substitutability": {
+      "type": ["string", "null"],
+      "enum": ["direct", "partial", "adjacent", "none", null],
+      "description": "Assigned by the classification stage."
+    },
+    "substitutability_reason": { "type": ["string", "null"] },
+    "overrode_prior": { "type": ["boolean", "null"], "description": "True when the model disagreed with the vertical config prior." },
+    "classifier_confidence": { "type": ["string", "null"], "enum": ["high", "medium", "low", null] },
+    "chain_group": {
+      "type": ["string", "null"],
+      "description": "Brand key when several locations share an operator. Used to damp entrenchment so a 6-store chain is not counted as 6 independent competitors."
+    },
+    "earliest_review_at": {
+      "type": ["string", "null"], "format": "date-time",
+      "description": "Oldest publishTime among the <=5 reviews the API returns. A weak LOWER BOUND on business age and nothing more."
+    },
+
+    "entrenchment":  { "type": ["number", "null"], "minimum": 0 },
+    "accessibility": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "weight":        { "type": ["number", "null"], "minimum": 0, "description": "s * e * a. Contribution to the Supply Index." },
+
+    "fetched_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

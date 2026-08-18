@@ -1,0 +1,49 @@
+# A deal under evaluation. This is the only file a user writes by hand.
+#
+#   python -m mcds.cli examples/sample_deal.yaml --dry-run
+#
+# --dry-run walks the full orchestration against fixtures/ with no network calls
+# and no API keys, which is how the scoring path is exercised in tests.
+deal_id: SUNNYSIDE-LAUNDRY-001
+label: Sunnyside Coin Laundry
+address: 4820 Skillman Ave, Sunnyside, NY 11104
+vertical: laundromat
+catchment_minutes: 10
+
+asking_price: 485000
+reported_sde: 142000
+
+seller_claims:
+  claims:
+    - claim_id: C1
+      kind: customer_household_type
+      verbatim: "Our customers are almost entirely renters in the surrounding apartment buildings."
+      source: "CIM p.6"
+      parsed: {}
+
+    - claim_id: C2
+      kind: catchment_extent
+      verbatim: "We draw customers from a three-mile radius."
+      source: "Broker call 2026-08-12"
+      parsed:
+        radius_miles: 3
+
+    - claim_id: C3
+      kind: customer_volume
+      verbatim: "We see roughly 1,400 customers a week."
+      source: "CIM p.11"
+      parsed:
+        customers_per_period: 1400
+        period: week
+
+    - claim_id: C4
+      kind: competitor_count
+      verbatim: "There are only two other laundromats nearby."
+      source: "CIM p.6"
+      parsed:
+        competitor_count: 2
+
+notes: >
+  Seller is retiring. Equipment replaced 2021 per the CIM. The three-mile radius
+  claim is the one to test first: at ten minutes' drive in this part of Queens
+  the real catchment is likely much tighter, and C3 depends on it.

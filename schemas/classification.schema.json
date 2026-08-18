@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/classification.schema.json",
+  "title": "Substitutability Classification",
+  "description": "Structured-output contract for the classification stage (Sonnet 5). Sent as output_config.format with strict:true, so the model cannot return a shape the pipeline does not expect.",
+  "type": "object",
+  "required": ["classifications"],
+  "additionalProperties": false,
+  "properties": {
+    "classifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["place_id", "substitutability", "confidence", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "place_id": { "type": "string" },
+          "substitutability": { "type": "string", "enum": ["direct", "partial", "adjacent", "none"] },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "reason": { "type": "string", "maxLength": 400 },
+          "overrode_prior": { "type": "boolean" },
+          "chain_group": {
+            "type": ["string", "null"],
+            "description": "Shared brand key when this location is one of several run by the same operator."
+          }
+        }
+      }
+    },
+    "coverage_concerns": {
+      "type": "array",
+      "description": "Competition the model believes exists but Places data cannot see: municipal facilities, employer or apartment-complex amenities, in-home substitutes, businesses too new to be listed.",
+      "items": { "type": "string" }
+    }
+  }
+}

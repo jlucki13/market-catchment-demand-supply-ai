@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/demographics.schema.json",
+  "title": "Catchment Demographics",
+  "description": "ACS estimates interpolated onto the catchment polygon, with margins of error carried through.",
+  "type": "object",
+  "required": ["households", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "households": { "$ref": "#/$defs/estimate" },
+    "population": { "$ref": "#/$defs/estimate" },
+    "distributions": {
+      "type": "object",
+      "description": "Keyed by dimension (household_income, age, tenure, household_size). Each is a list of bands with an interpolated household or person count.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["band", "estimate"],
+          "additionalProperties": false,
+          "properties": {
+            "band":      { "type": "string" },
+            "min":       { "type": ["number", "null"] },
+            "max":       { "type": ["number", "null"] },
+            "estimate":  { "$ref": "#/$defs/estimate" }
+          }
+        }
+      }
+    },
+    "block_groups": {
+      "type": "array",
+      "description": "Every block group intersecting the polygon and the fraction attributed to it. The audit trail for the interpolation.",
+      "items": {
+        "type": "object",
+        "required": ["geoid", "overlap_fraction", "weight_method"],
+        "additionalProperties": false,
+        "properties": {
+          "geoid":            { "type": "string" },
+          "overlap_fraction": { "type": "number", "minimum": 0, "maximum": 1 },
+          "weight_method":    { "type": "string", "enum": ["areal", "population_weighted"] },
+          "fully_contained":  { "type": "boolean" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["dataset", "vintage"],
+      "additionalProperties": false,
+      "properties": {
+        "dataset":          { "type": "string", "examples": ["acs/acs5"] },
+        "vintage":          { "type": "integer" },
+        "confidence_level": { "type": "number", "default": 0.90 },
+        "retrieved_at":     { "type": "string", "format": "date-time" }
+      }
+    },
+    "$comment": "ACS block-group margins of error are large, routinely +/-30% of the estimate. Every consumer of this object must carry the interval, never the point estimate alone."
+  },
+  "$defs": {
+    "estimate": {
+      "type": "object",
+      "required": ["value"],
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "number" },
+        "moe":   { "type": ["number", "null"], "description": "Margin of error at the stated confidence level." },
+        "lo":    { "type": ["number", "null"] },
+        "hi":    { "type": ["number", "null"] }
+      }
+    }
+  }
+}

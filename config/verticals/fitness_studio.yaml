@@ -1,0 +1,79 @@
+# Vertical config: Fitness Studio / Gym
+id: fitness_studio
+label: Fitness Studio / Gym
+version: 1
+
+catchment:
+  # Membership businesses live or die on trip friction, because the trip repeats
+  # 2-4x per week. Beyond ~12 minutes attendance collapses and so does retention.
+  default_minutes: 12
+  alternates: [8, 15]
+  profile: driving
+
+places:
+  direct_types:   [gym, fitness_center]
+  adjacent_types: [yoga_studio, sports_club, sports_complex, swimming_pool]
+  context_types:  [physiotherapist, spa, park]
+
+substitution:
+  priors:
+    gym: direct
+    fitness_center: direct
+    yoga_studio: partial
+    sports_club: partial
+    sports_complex: adjacent
+    swimming_pool: adjacent
+    physiotherapist: none
+    spa: none
+    park: none
+  guidance: >
+    Format matters more than the type label. A $10/month high-volume low-price
+    chain and a $200/month boutique studio barely compete despite both being
+    "gym" — price level is the strongest available separator, and where price
+    level is missing, the name and rating pattern often reveal format. A 24-hour
+    access chain competes for a different customer than a staffed studio with
+    class schedules. Municipal recreation centers and employer or apartment-
+    complex gyms are real competition that will not appear in Places data at all;
+    flag that gap rather than ignoring it.
+
+clustering:
+  # DBSCAN radius for detecting competitor corridors. Density-sensitive: too
+  # wide and every competitor lands in one cluster, which says nothing.
+  # Gyms are sited further apart; a wider radius is what separates a genuine cluster from ordinary spacing.
+  eps_km: 1.2
+  min_samples: 3
+
+demand:
+  filters:
+    - dimension: household_income
+      source_table: B19001
+      unit: household
+      min: 50000
+      max: null
+      rationale: >
+        Discretionary recurring spend. The floor is format-dependent and should
+        be lowered for a high-volume low-price concept; see `guidance`.
+    - dimension: age
+      source_table: B01001     # Sex by Age
+      unit: person
+      min: 18
+      max: 64
+      rationale: >
+        Prime membership demographic. Note this filter correlates with the income
+        filter, which is exactly what `independence_penalty` exists to handle.
+  combination: multiplicative
+  independence_penalty: true
+
+benchmark:
+  method: cbp_derived
+  households_per_location: null
+  naics: "713940"              # Fitness and Recreational Sports Centers
+  source: null
+  source_url: null
+  vintage: null
+  confidence: none
+  notes: >
+    NAICS 713940 bundles boutique studios, big-box gyms, and recreational sports
+    centers, so the CBP-derived denominator runs high for any single format.
+    Treat the derived benchmark as an upper bound on required households and say
+    so in the memo.

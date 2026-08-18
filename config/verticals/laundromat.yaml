@@ -1,0 +1,76 @@
+# Vertical config: Laundromat / Coin Laundry
+id: laundromat
+label: Laundromat / Coin Laundry
+version: 1
+
+catchment:
+  # Laundry is a haul trip with a wait. Real-world catchments are tight — people
+  # go to the closest acceptable option, and 10 minutes each way twice per visit
+  # is already a lot for a chore.
+  default_minutes: 10
+  alternates: [6, 15]
+  profile: driving
+
+places:
+  direct_types:   [laundry]
+  adjacent_types: [dry_cleaner]
+  context_types:  [convenience_store, storage]
+
+substitution:
+  priors:
+    laundry: direct
+    dry_cleaner: adjacent
+    convenience_store: none
+    storage: none
+  guidance: >
+    Google's `laundry` type merges self-service laundromats with drop-off dry
+    cleaners, which are different businesses serving different customers. Use the
+    name, price level, and hours to separate them: 24-hour operation and no
+    "cleaners" in the name strongly suggest self-service. A dry cleaner is at most
+    an adjacent substitute for a coin-laundry customer. Wash-and-fold service
+    offered by a laundromat competes with dry cleaners, not the reverse.
+    Card-operated modern stores compete differently from coin-only legacy stores.
+
+clustering:
+  # DBSCAN radius for detecting competitor corridors. Density-sensitive: too
+  # wide and every competitor lands in one cluster, which says nothing.
+  # Dense urban laundromat markets sit a few blocks apart; 0.8 km merges the whole catchment into one blob.
+  eps_km: 0.4
+  min_samples: 3
+
+demand:
+  # The demand driver here is renter-occupied housing without in-unit laundry,
+  # not income. This is the clearest case in the seed set where the naive
+  # "higher income = better market" instinct is backwards.
+  filters:
+    - dimension: tenure
+      source_table: B25003     # Tenure
+      unit: household
+      include_bands: [renter_occupied]
+      rationale: >
+        Renter households are the core market; owner-occupied units usually have
+        in-unit laundry. Used as a weight on total households, not a hard filter.
+    - dimension: household_income
+      source_table: B19001
+      unit: household
+      min: null
+      max: 75000
+      rationale: >
+        Demand is inversely income-gated: above roughly this level households
+        tend to have or buy in-unit machines. The ceiling is the filter that
+        matters; there is deliberately no floor.
+  combination: multiplicative
+  independence_penalty: true
+
+benchmark:
+  method: cbp_derived
+  households_per_location: null
+  naics: "812310"              # Coin-Operated Laundries and Drycleaners
+  source: null
+  source_url: null
+  vintage: null
+  confidence: none
+  notes: >
+    Coin Laundry Association publishes industry ratios that would serve as a
+    static cross-check on the CBP-derived figure. Fill in `source` and
+    `source_url` if you substitute a static value.

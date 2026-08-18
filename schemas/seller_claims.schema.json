@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/seller_claims.schema.json",
+  "title": "Seller Claims",
+  "description": "Testable propositions extracted from the seller's story. v1 is hand-entered; v2 populates this from a CIM PDF via the claims-extraction stage.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "kind", "verbatim"],
+        "additionalProperties": false,
+        "properties": {
+          "claim_id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "customer_income",
+              "customer_age",
+              "customer_household_type",
+              "catchment_extent",
+              "customer_volume",
+              "repeat_rate",
+              "competitor_count",
+              "market_growth",
+              "other"
+            ]
+          },
+          "verbatim": {
+            "type": "string",
+            "description": "The seller's words, quoted. Preserved so the memo can show what was actually claimed rather than a paraphrase."
+          },
+          "source": {
+            "type": "string",
+            "description": "Where it came from: CIM p.4, broker call 2026-08-12, listing page."
+          },
+          "parsed": {
+            "type": "object",
+            "description": "Machine-testable form. Which fields apply depends on `kind`.",
+            "additionalProperties": true,
+            "properties": {
+              "income_min":     { "type": ["number", "null"] },
+              "income_max":     { "type": ["number", "null"] },
+              "age_min":        { "type": ["number", "null"] },
+              "age_max":        { "type": ["number", "null"] },
+              "radius_miles":   { "type": ["number", "null"] },
+              "drive_minutes":  { "type": ["number", "null"] },
+              "customers_per_period": { "type": ["number", "null"] },
+              "period":         { "type": ["string", "null"], "enum": ["day", "week", "month", "year", null] },
+              "competitor_count": { "type": ["integer", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

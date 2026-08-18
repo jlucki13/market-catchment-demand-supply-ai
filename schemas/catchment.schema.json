@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/catchment.schema.json",
+  "title": "Catchment",
+  "description": "A drive-time polygon and its provenance.",
+  "type": "object",
+  "required": ["origin", "minutes", "profile", "polygon", "provider", "generated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "origin": {
+      "type": "object",
+      "required": ["lat", "lng"],
+      "additionalProperties": false,
+      "properties": {
+        "lat": { "type": "number", "minimum": -90,  "maximum": 90 },
+        "lng": { "type": "number", "minimum": -180, "maximum": 180 },
+        "formatted_address": { "type": "string" },
+        "geocode_quality": { "type": "string", "enum": ["ROOFTOP", "RANGE_INTERPOLATED", "GEOMETRIC_CENTER", "APPROXIMATE"] }
+      }
+    },
+    "minutes": { "type": "integer", "minimum": 1, "maximum": 60 },
+    "profile": { "type": "string", "enum": ["driving", "driving-traffic", "walking", "cycling"] },
+    "polygon": {
+      "type": "object",
+      "description": "GeoJSON Polygon. Ring is closed: first coordinate equals last.",
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": { "const": "Polygon" },
+        "coordinates": {
+          "type": "array",
+          "items": { "type": "array", "minItems": 4, "items": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } } }
+        }
+      }
+    },
+    "area_sq_km":   { "type": "number", "minimum": 0 },
+    "provider":     { "type": "string", "enum": ["mapbox"] },
+    "traffic_aware": {
+      "type": "boolean",
+      "description": "False for the mapbox `driving` profile. When false the memo must say the contour is free-flow and may overstate reach at peak."
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  }
+}

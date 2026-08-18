@@ -1,0 +1,90 @@
+# Vertical config: Coffee Shop / Cafe
+#
+# Everything category-specific lives in a file like this. Adding a fourth vertical
+# is a new file here, not a code change. See docs/scoring-methodology.md for how
+# each block feeds the indices.
+id: coffee_shop
+label: Coffee Shop / Cafe
+version: 1
+
+catchment:
+  # Coffee is a short-trip, high-frequency, low-ticket category. People do not
+  # drive 15 minutes for it, so a wide catchment overstates reachable demand.
+  default_minutes: 8
+  alternates: [5, 12]
+  profile: driving        # mapbox profile: driving | driving-traffic | walking | cycling
+
+places:
+  # Google place types for the supply census (Places Aggregate API `includedTypes`).
+  # `context_types` are pulled but expected to score as non-substitutes; they are
+  # included so the classifier sees real retail context instead of a pre-filtered
+  # view that already assumes the answer.
+  direct_types:   [coffee_shop, cafe]
+  adjacent_types: [bakery, donut_shop, breakfast_restaurant, sandwich_shop, convenience_store]
+  context_types:  [restaurant, bar, meal_takeaway]
+
+substitution:
+  # Priors seed the classifier. The model may override any prior, but an override
+  # must carry a reason and is written to the run log (see reasoning/classify.py).
+  priors:
+    coffee_shop: direct
+    cafe: direct
+    bakery: partial
+    donut_shop: partial
+    breakfast_restaurant: partial
+    sandwich_shop: adjacent
+    convenience_store: adjacent
+    restaurant: none
+    bar: none
+    meal_takeaway: none
+  guidance: >
+    Drive-thru presence and morning-rush accessibility matter more than menu
+    overlap for commuter demand: a gas-station coffee counter on the inbound side
+    of a commute can be a closer substitute than a sit-down cafe two blocks off
+    the route. Chains with mobile-order pickup compete for a different trip than
+    independents with seating; weigh seating capacity for remote-work demand.
+
+clustering:
+  # DBSCAN radius for detecting competitor corridors. Density-sensitive: too
+  # wide and every competitor lands in one cluster, which says nothing.
+  # Coffee competes block by block, so corridors are tight.
+  eps_km: 0.4
+  min_samples: 3
+
+demand:
+  # Each filter yields a share of catchment households. See `combination` below
+  # for how shares are combined.
+  filters:
+    - dimension: household_income
+      source_table: B19001     # Household Income in the Past 12 Months
+      unit: household
+      min: 35000
+      max: null
+      rationale: >
+        Discretionary daily coffee spend is weakly income-gated. The floor
+        excludes households where a $5 daily habit is implausible; there is no
+        ceiling because high earners do not stop buying coffee.
+  # multiplicative: multiply every filter's share. Assumes independence across
+  #   dimensions, which is false when filters correlate (income x age especially).
+  # primary_only: use the single highest-signal filter and ignore the rest.
+  #   Conservative and honest when filters are known to correlate.
+  combination: multiplicative
+  independence_penalty: true   # widens the reported CI when >1 filter is combined
+
+benchmark:
+  # Households needed in a catchment to sustain one location. Gates the
+  # over/under-served verdict. An unsourced benchmark SUPPRESSES the verdict
+  # rather than producing a confident-looking number from nothing.
+  method: cbp_derived          # static | cbp_derived
+  households_per_location: null
+  naics: "722515"              # Snack and Nonalcoholic Beverage Bars
+  source: null
+  source_url: null
+  vintage: null
+  confidence: none             # none | low | medium | high
+  notes: >
+    method: cbp_derived computes this at runtime from Census County Business
+    Patterns establishment counts for the NAICS above divided by ACS households,
+    at county or CBSA level, giving a locally-calibrated and fully sourced
+    benchmark. See src/mcds/demand/benchmark.py. Until that runs (or a static
+    sourced value is filled in), the verdict is suppressed by design.

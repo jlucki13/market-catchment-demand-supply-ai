@@ -1,0 +1,65 @@
+# Copy to config/settings.yaml (gitignored) and fill in. Keys are read from the
+# environment; this file names the variables and holds non-secret defaults only.
+# Never put a key value in this file.
+
+credentials:
+  google_maps:   ${GOOGLE_MAPS_API_KEY}    # Geocoding + Places + Places Aggregate + Routes
+  mapbox:        ${MAPBOX_ACCESS_TOKEN}    # Isochrone
+  census:        ${CENSUS_API_KEY}         # ACS + County Business Patterns
+  anthropic:     ${ANTHROPIC_API_KEY}      # or `ant auth login`; see docs/model-routing.md
+
+models:
+  # Stage -> model. See docs/model-routing.md for the rationale behind each tier.
+  normalize:  claude-haiku-4-5
+  classify:   claude-sonnet-5
+  claims:     claude-sonnet-5
+  synthesize: claude-fable-5
+  review:     claude-opus-5
+  triage:     claude-sonnet-5
+
+effort:
+  # output_config.effort. Note this is nested under output_config in the request,
+  # not a top-level parameter.
+  synthesize: xhigh
+  review:     high
+  classify:   medium
+  triage:     low
+
+reasoning:
+  # Fable 5 and Opus 5 can return stop_reason="refusal". Server-side fallbacks
+  # route around it without maintaining a model list.
+  server_side_fallbacks: true
+  # Fable 5 is unavailable under zero data retention. If your org enforces ZDR,
+  # set this and the synthesize stage falls back to claude-opus-5.
+  org_requires_zdr: false
+  prompt_cache: true          # caches the rubric + vertical config prefix
+
+census:
+  # ACS 5-year is the only dataset published at block-group level. 1-year has
+  # better currency but stops at 65k-population geographies, which is useless
+  # for a drive-time catchment.
+  dataset: acs/acs5
+  vintage: 2023
+  confidence_level: 0.90      # ACS publishes 90% MOEs
+
+places:
+  # Field masks drive Google's SKU tier. Keep the census call cheap and only pay
+  # Enterprise+Atmosphere rates on the enriched shortlist.
+  census_field_mask: "places.id,places.types,places.location"
+  detail_field_mask: >-
+    id,displayName,formattedAddress,location,types,primaryType,rating,
+    userRatingCount,priceLevel,regularOpeningHours,businessStatus,reviews
+  max_enriched: 100           # Aggregate API returns place IDs only when count <= 100
+
+routing:
+  travel_mode: DRIVE
+  routing_preference: TRAFFIC_AWARE     # TRAFFIC_AWARE_OPTIMAL drops the element cap to 100
+  departure_windows:                    # peak/off-peak spot check, see docs/data-sources.md
+    - { label: weekday_peak,    dow: 2, hour: 8  }
+    - { label: weekday_offpeak, dow: 2, hour: 14 }
+
+storage:
+  # Google Maps ToS: place_id may be stored indefinitely; coordinates <= 30 days;
+  # names/ratings/reviews must not be warehoused. Enforced in supply/places.py.
+  persist_place_content: false
+  coordinate_ttl_days: 30

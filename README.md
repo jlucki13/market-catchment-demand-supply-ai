@@ -1,0 +1,81 @@
+# Market Catchment Demand/Supply Analyzer
+
+One score and one memo per address, answering the question behind every SMB
+acquisition screen: **how much demand exists here, and how much of it is already
+spoken for?**
+
+Not a map with pins on it, and not a radius circle with census numbers attached
+— a real drive-time catchment with both the demand and the competition measured
+against that same polygon, plus the seller's claims tested against it.
+
+**Start with [docs/PRD.md](docs/PRD.md).**
+
+## Try it without any API keys
+
+```bash
+pip install pyyaml jsonschema
+PYTHONPATH=src python3 -m mcds.cli examples/sample_deal.yaml --dry-run
+```
+
+`--dry-run` walks the full orchestration against `fixtures/` with no network
+calls, which is how the scoring path is exercised in tests and how a formula
+change is verified without spending on APIs.
+
+```bash
+PYTHONPATH=src python3 -m pytest tests/ -q      # 53 tests
+```
+
+## Status
+
+Phase 0 is complete and tested: schemas, vertical configs, the full scoring
+engine, the provenance rail, the memo renderer, and the model routing. The
+external connectors and reasoning calls are stubs carrying their full signatures,
+request shapes, and API constraints — see the build sequence in
+[docs/PRD.md §13](docs/PRD.md).
+
+## Layout
+
+```
+docs/PRD.md                  the product spec — read this first
+docs/scoring-methodology.md  every formula and the reasoning behind each constant
+docs/model-routing.md        which Claude model runs which stage, and why
+docs/data-sources.md         per-API limits, terms of service, data vintages
+
+config/verticals/*.yaml      per-category tuning. A new vertical is a new file here
+config/settings.example.yaml credentials, model assignments, API defaults
+schemas/*.schema.json        the data contracts every stage reads and writes
+
+src/mcds/scoring/            Demand Index, Supply Index, balance, geography
+src/mcds/provenance.py       the rail: no number reaches the memo uncomputed
+src/mcds/moe.py              Census margin-of-error arithmetic
+src/mcds/reasoning/          model routing and the stage prompts
+src/mcds/catchment|supply|demand/   external connectors
+src/mcds/render/memo.py      scorecard + findings → markdown
+
+fixtures/                    a synthetic Queens laundromat catchment for --dry-run
+tests/test_scoring.py        golden-number tests pinning every constant
+```
+
+## Design principles
+
+Four decisions do most of the work, and each is enforced in code rather than
+left to discipline:
+
+1. **Models produce judgment; code produces numbers.** Nothing in `scoring/`
+   calls a model. The synthesis stage may cite only fields that exist in the
+   scorecard, and a memo containing a figure with no computed origin does not
+   render.
+2. **Intervals, not point estimates.** ACS block-group margins run ±30%.
+   Reporting a bare figure is not more precise, it is less honest.
+3. **Suppress rather than guess.** No sourced benchmark means no verdict. A
+   confident "underserved" from an invented denominator is the most dangerous
+   output this tool could produce.
+4. **Caveats before conclusions.** A reader who stops halfway has read that the
+   supply census was incomplete.
+
+## Adding a vertical
+
+A new file in `config/verticals/`. It declares the drive-time catchment, the
+Google place types to census, substitutability priors and guidance for the
+classifier, the demographic filters that gate demand, and the sustainability
+benchmark. No code changes.

@@ -1,0 +1,310 @@
+[
+  {
+    "place_id": "ChIJfixture000",
+    "persistable": false,
+    "name": "Skillman Wash & Fold",
+    "location": {
+      "lat": 40.744,
+      "lng": -73.9165
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 4.4,
+    "user_rating_count": 118,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 2.1,
+    "drive_distance_m": 457,
+    "straight_line_km": 0.272,
+    "detour_ratio": 1.68,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture001",
+    "persistable": false,
+    "name": "Queens Blvd Laundromat",
+    "location": {
+      "lat": 40.7428,
+      "lng": -73.921
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 4.1,
+    "user_rating_count": 246,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 1.4,
+    "drive_distance_m": 166,
+    "straight_line_km": 0.13,
+    "detour_ratio": 1.27,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture002",
+    "persistable": false,
+    "name": "SuperClean Laundry #3",
+    "location": {
+      "lat": 40.7419,
+      "lng": -73.9243
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 4.3,
+    "user_rating_count": 302,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 2.8,
+    "drive_distance_m": 657,
+    "straight_line_km": 0.425,
+    "detour_ratio": 1.55,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": "SuperClean",
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture003",
+    "persistable": false,
+    "name": "SuperClean Laundry #7",
+    "location": {
+      "lat": 40.7412,
+      "lng": -73.9268
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 4.2,
+    "user_rating_count": 187,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 3.4,
+    "drive_distance_m": 754,
+    "straight_line_km": 0.649,
+    "detour_ratio": 1.16,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": "SuperClean",
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture004",
+    "persistable": false,
+    "name": "Bliss St Coin Laundry",
+    "location": {
+      "lat": 40.7462,
+      "lng": -73.9188
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 3.9,
+    "user_rating_count": 64,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 2.6,
+    "drive_distance_m": 579,
+    "straight_line_km": 0.329,
+    "detour_ratio": 1.76,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture005",
+    "persistable": false,
+    "name": "Woodside Wash",
+    "location": {
+      "lat": 40.7455,
+      "lng": -73.9052
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 4.5,
+    "user_rating_count": 151,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 6.2,
+    "drive_distance_m": 2185,
+    "straight_line_km": 1.235,
+    "detour_ratio": 1.77,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture006",
+    "persistable": false,
+    "name": "Sunnyside Cleaners",
+    "location": {
+      "lat": 40.7436,
+      "lng": -73.9201
+    },
+    "primary_type": "dry_cleaner",
+    "types": [
+      "dry_cleaner"
+    ],
+    "rating": 4.6,
+    "user_rating_count": 89,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 1.2,
+    "drive_distance_m": 78,
+    "straight_line_km": 0.054,
+    "detour_ratio": 1.46,
+    "substitutability": "adjacent",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture007",
+    "persistable": false,
+    "name": "Elite Dry Cleaning",
+    "location": {
+      "lat": 40.7401,
+      "lng": -73.9155
+    },
+    "primary_type": "dry_cleaner",
+    "types": [
+      "dry_cleaner"
+    ],
+    "rating": 4.2,
+    "user_rating_count": 41,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 3.1,
+    "drive_distance_m": 631,
+    "straight_line_km": 0.495,
+    "detour_ratio": 1.27,
+    "substitutability": "adjacent",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture008",
+    "persistable": false,
+    "name": "LaundroMax 24hr",
+    "location": {
+      "lat": 40.7385,
+      "lng": -73.9298
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 4.0,
+    "user_rating_count": 213,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 7.8,
+    "drive_distance_m": 1423,
+    "straight_line_km": 1.01,
+    "detour_ratio": 1.41,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture009",
+    "persistable": false,
+    "name": "Corner Wash",
+    "location": {
+      "lat": 40.7501,
+      "lng": -73.9241
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": 3.6,
+    "user_rating_count": 27,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 8.9,
+    "drive_distance_m": 1422,
+    "straight_line_km": 0.844,
+    "detour_ratio": 1.68,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  },
+  {
+    "place_id": "ChIJfixture010",
+    "persistable": false,
+    "name": "Amsterdam Laundry",
+    "location": {
+      "lat": 40.7368,
+      "lng": -73.912
+    },
+    "primary_type": "laundry",
+    "types": [
+      "laundry"
+    ],
+    "rating": null,
+    "user_rating_count": null,
+    "price_level": null,
+    "business_status": "OPERATIONAL",
+    "drive_time_minutes": 9.4,
+    "drive_distance_m": 1414,
+    "straight_line_km": 0.964,
+    "detour_ratio": 1.47,
+    "substitutability": "direct",
+    "classifier_confidence": "high",
+    "substitutability_reason": "seeded fixture",
+    "overrode_prior": false,
+    "chain_group": null,
+    "earliest_review_at": null,
+    "fetched_at": "2026-08-18T14:04:00+00:00"
+  }
+]

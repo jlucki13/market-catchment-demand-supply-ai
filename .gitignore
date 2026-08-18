@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Real settings hold credentials; only the example is tracked.
+config/settings.yaml
+
+# Generated memos and scorecards. Google Maps terms forbid warehousing Places
+# content, so run outputs are treated as point-in-time artifacts, not a dataset.
+out/
+*.scorecard.json
+!fixtures/*.json

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcds.local/schemas/scorecard.schema.json",
+  "title": "Scorecard",
+  "description": "The deterministic output. Every number here is computed in Python from source data; no model produces any value in this object. The synthesis stage reads it and may only reference these fields by their dotted path.",
+  "type": "object",
+  "required": ["deal_id", "vertical", "demand", "supply", "balance", "computed_at"],
+  "additionalProperties": false,
+  "properties": {
+    "deal_id":  { "type": "string" },
+    "vertical": { "type": "string" },
+
+    "demand": {
+      "type": "object",
+      "required": ["total_households", "qualified_households", "filters_applied"],
+      "additionalProperties": false,
+      "properties": {
+        "total_households":     { "$ref": "#/$defs/interval" },
+        "qualified_households": { "$ref": "#/$defs/interval" },
+        "qualified_share":      { "type": "number", "minimum": 0, "maximum": 1 },
+        "filters_applied": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["dimension", "share"],
+            "additionalProperties": false,
+            "properties": {
+              "dimension":    { "type": "string" },
+              "share":        { "type": "number", "minimum": 0, "maximum": 1 },
+              "source_table": { "type": "string" },
+              "band":         { "type": "string" }
+            }
+          }
+        },
+        "combination":          { "type": "string", "enum": ["multiplicative", "primary_only"] },
+        "independence_penalty_applied": {
+          "type": "boolean",
+          "description": "True when >1 filter was multiplied and the CI was widened to reflect that the filters are not independent."
+        }
+      }
+    },
+
+    "supply": {
+      "type": "object",
+      "required": ["index", "competitor_count", "effective_competitors"],
+      "additionalProperties": false,
+      "properties": {
+        "index":                { "type": "number", "minimum": 0 },
+        "competitor_count":     { "type": "integer", "minimum": 0, "description": "Raw count of places examined in the catchment." },
+        "effective_competitors": { "type": "number", "minimum": 0, "description": "Same as index; the readable name for it." },
+        "by_substitutability":  { "type": "object", "additionalProperties": { "type": "integer" } },
+        "census_count": {
+          "type": ["integer", "null"],
+          "description": "Places Aggregate INSIGHT_COUNT for the polygon. When this exceeds the number enriched, the supply index is a documented undercount."
+        },
+        "enriched_count":       { "type": ["integer", "null"] },
+        "census_complete": {
+          "type": "boolean",
+          "description": "False when census_count > enriched_count, i.e. the catchment held more matching places than the API would name."
+        },
+        "chain_groups":         { "type": "object", "additionalProperties": { "type": "integer" } },
+        "strongest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "place_id": { "type": "string" },
+              "name":     { "type": ["string", "null"] },
+              "weight":   { "type": "number" },
+              "drive_time_minutes": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
+
+    "balance": {
+      "type": "object",
+      "required": ["households_per_effective_competitor", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "households_per_effective_competitor": { "$ref": "#/$defs/interval" },
+        "benchmark": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "households_per_location": { "type": ["number", "null"] },
+            "method":     { "type": "string", "enum": ["static", "cbp_derived"] },
+            "source":     { "type": ["string", "null"] },
+            "source_url": { "type": ["string", "null"] },
+            "vintage":    { "type": ["integer", "null"] },
+            "confidence": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+          }
+        },
+        "ratio": { "type": ["number", "null"], "description": "households_per_effective_competitor / benchmark. Null when the benchmark is unsourced." },
+        "verdict": {
+          "type": "string",
+          "enum": ["oversupplied", "balanced", "underserved", "suppressed"],
+          "description": "`suppressed` when no sourced benchmark exists. Suppression is the designed behaviour, not a failure: a verdict from an invented benchmark is worse than no verdict."
+        },
+        "verdict_reason": { "type": ["string", "null"] }
+      }
+    },
+
+    "geography": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clusters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cluster_id":  { "type": "integer" },
+              "size":        { "type": "integer" },
+              "members":     { "type": "array", "items": { "type": "string" } },
+              "total_weight": { "type": "number" },
+              "centroid":    { "type": "object", "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+              "mean_drive_time_minutes": { "type": "number" }
+            }
+          }
+        },
+        "unclustered": { "type": "array", "items": { "type": "string" } },
+        "gap_cells": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "lat": { "type": "number" },
+              "lng": { "type": "number" },
+              "underservice_score": { "type": "number", "minimum": 0, "maximum": 1 },
+              "nearest_competitor_minutes": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
+
+    "warnings": {
+      "type": "array",
+      "description": "Machine-generated caveats: undercounted supply, unsourced benchmark, wide MOEs, non-traffic-aware isochrone, low geocode quality. Rendered in the memo verbatim.",
+      "items": { "type": "string" }
+    },
+    "computed_at": { "type": "string", "format": "date-time" }
+  },
+
+  "$defs": {
+    "interval": {
+      "type": "object",
+      "required": ["value"],
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "number" },
+        "lo":    { "type": ["number", "null"] },
+        "hi":    { "type": ["number", "null"] },
+        "moe":   { "type": ["number", "null"] }
+      }
+    }
+  }
+}
