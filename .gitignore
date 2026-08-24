@@ -13,3 +13,6 @@ config/settings.yaml
 out/
 *.scorecard.json
 !fixtures/*.json
+
+# Real keys. Only .env.example is tracked.
+.env

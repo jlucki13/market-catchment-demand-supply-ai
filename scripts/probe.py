@@ -48,7 +48,7 @@ from typing import Any
 import requests
 
 from mcds.catchment.isochrone import polygon_area_sq_km, simplify_ring
-from mcds.config import load_vertical
+from mcds.config import load_dotenv, load_vertical
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 MAPBOX_URL = "https://api.mapbox.com/isochrone/v1/mapbox/{profile}/{lng},{lat}"
@@ -220,9 +220,107 @@ def details(place_ids: list[str], api_key: str, limit: int) -> None:
               "loose lower bound")
 
 
+CENSUS_TEST_URL = "https://api.census.gov/data/2023/acs/acs5"
+
+
+def check_keys() -> int:
+    """Verify each key that is set, with one cheap call apiece.
+
+    Reports per service rather than requiring all of them, so a key can be
+    checked the moment it is obtained instead of waiting until the whole set is
+    assembled. Every call here lands inside a free tier.
+    """
+    hr("Key check")
+    results: dict[str, str] = {}
+
+    token = os.environ.get("MAPBOX_ACCESS_TOKEN")
+    if not token:
+        results["Mapbox"] = "not set"
+    else:
+        r = requests.get(
+            MAPBOX_URL.format(profile="driving", lng=-73.9196, lat=40.7433),
+            params={"contours_minutes": 5, "polygons": "true", "access_token": token},
+            timeout=TIMEOUT,
+        )
+        if r.status_code == 200 and r.json().get("features"):
+            ring = r.json()["features"][0]["geometry"]["coordinates"][0]
+            results["Mapbox"] = (
+                f"OK -- 5-min test contour returned "
+                f"{len(ring)} vertices, {polygon_area_sq_km(ring):.1f} km2"
+            )
+        else:
+            results["Mapbox"] = f"FAILED -- HTTP {r.status_code}: {r.text[:200]}"
+
+    census = os.environ.get("CENSUS_API_KEY")
+    if not census:
+        results["Census"] = "not set"
+    else:
+        r = requests.get(
+            CENSUS_TEST_URL,
+            params={"get": "NAME,B11001_001E", "for": "state:36", "key": census},
+            timeout=TIMEOUT,
+        )
+        if r.status_code == 200:
+            try:
+                rows = r.json()
+                name, households = rows[1][0], int(rows[1][1])
+                results["Census"] = f"OK -- {name} has {households:,} households"
+            except (ValueError, IndexError):
+                results["Census"] = f"FAILED -- unexpected response: {r.text[:200]}"
+        else:
+            # An unactivated key returns 200 with an HTML error body, or a 403.
+            results["Census"] = (
+                f"FAILED -- HTTP {r.status_code}: {r.text[:200]}\n"
+                "      If this mentions an invalid key, check your email and "
+                "click the activation link."
+            )
+
+    google = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if not google:
+        results["Google"] = "not set"
+    else:
+        r = requests.get(
+            GEOCODE_URL,
+            params={"address": "1600 Amphitheatre Parkway, Mountain View, CA", "key": google},
+            timeout=TIMEOUT,
+        )
+        data = r.json() if r.status_code == 200 else {}
+        if data.get("status") == "OK":
+            results["Google"] = "OK -- Geocoding responded (other APIs not tested)"
+        else:
+            results["Google"] = (
+                f"FAILED -- status={data.get('status', r.status_code)} "
+                f"{data.get('error_message', r.text[:200])}"
+            )
+
+    for service, outcome in results.items():
+        marker = {"OK": "  OK ", "no": "  -- ", "FA": "  !! "}[outcome[:2]]
+        print(f"{marker}{service:<8} {outcome}")
+
+    unset = [s for s, o in results.items() if o == "not set"]
+    failed = [s for s, o in results.items() if o.startswith("FAILED")]
+    print()
+    if failed:
+        print(f"Fix these before probing: {', '.join(failed)}")
+        return 1
+    if unset:
+        print(f"Not set yet (fine if you have not got to them): {', '.join(unset)}")
+    working = [s for s, o in results.items() if o.startswith("OK")]
+    if working:
+        print(f"Working: {', '.join(working)}")
+    if "Google" in unset or "Mapbox" in unset:
+        print("\nThe full probe needs both Mapbox and Google. Until then, try:")
+        print("  mcds examples/sample_deal.yaml --dry-run --no-llm")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("address")
+    ap.add_argument("address", nargs="?",
+                    help="omit when using --check")
+    ap.add_argument("--check", action="store_true",
+                    help="verify whichever keys are set, then exit. Costs nothing "
+                         "beyond three calls inside the free tiers.")
     ap.add_argument("--vertical", default="laundromat")
     ap.add_argument("--minutes", type=int, default=None)
     ap.add_argument("--profile", default=None,
@@ -230,6 +328,12 @@ def main() -> int:
     ap.add_argument("--details", type=int, default=0,
                     help="how many Place Details to fetch (costs money; default 0)")
     args = ap.parse_args()
+    load_dotenv()
+
+    if args.check:
+        return check_keys()
+    if not args.address:
+        ap.error("an address is required unless you pass --check")
 
     google_key = os.environ.get("GOOGLE_MAPS_API_KEY")
     mapbox_token = os.environ.get("MAPBOX_ACCESS_TOKEN")

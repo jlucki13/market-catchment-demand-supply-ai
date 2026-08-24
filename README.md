@@ -102,6 +102,7 @@ docs/scoring-methodology.md  every formula and the reasoning behind each constan
 docs/model-routing.md        which Claude model runs which stage, and why
 docs/data-sources.md         per-API limits, terms of service, data vintages
 docs/running-free.md         free-tier budgets and the zero-cost --no-llm path
+.env.example                 copy to .env; read automatically by the CLI and probe
 
 config/verticals/*.yaml      per-category tuning. A new vertical is a new file here
 config/settings.example.yaml credentials, model assignments, API defaults

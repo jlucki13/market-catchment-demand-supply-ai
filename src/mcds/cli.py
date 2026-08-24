@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import load_deal, load_settings
+from .config import load_deal, load_dotenv, load_settings
 from .pipeline import run
 
 
@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
              "Intended for debugging a prompt, not for producing a memo.",
     )
     args = parser.parse_args(argv)
+    load_dotenv()
 
     deal = load_deal(args.deal)
     settings = load_settings(args.settings) if args.settings else None

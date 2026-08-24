@@ -123,6 +123,30 @@ Google's free tier already covers 16–83 deals a month. Trading away the
 entrenchment signal to avoid putting a card on file is a bad deal unless you
 genuinely cannot use Google at all.
 
+## Setting the keys
+
+Copy `.env.example` to `.env` and fill in what you have. It is gitignored, and
+the CLI and probe read it automatically — no need to set anything in your shell
+each session, which matters on Windows where `$env:VAR="..."` lasts only until
+you close the terminal.
+
+```
+MAPBOX_ACCESS_TOKEN=pk.eyJ1...
+CENSUS_API_KEY=abc123...
+```
+
+A key exported in your shell always wins over the file, so you can override one
+temporarily without editing anything.
+
+Check whatever you have so far:
+
+```bash
+python scripts/probe.py --check
+```
+
+It reports per service, so a key can be verified the moment you get it rather
+than waiting for the whole set. Every call it makes lands inside a free tier.
+
 ## Recommended setup
 
 1. Google Cloud project, billing enabled, **budget alert at $5**.

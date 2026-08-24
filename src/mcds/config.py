@@ -22,6 +22,39 @@ SCHEMAS_DIR = REPO_ROOT / "schemas"
 _ENV_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
+def load_dotenv(path: str | Path | None = None) -> list[str]:
+    """Read `.env` from the repo root into os.environ. Returns the names loaded.
+
+    Exists because PowerShell's `$env:VAR="..."` lasts only for that terminal
+    session, so on Windows the alternative is re-pasting keys every time or
+    setting them system-wide. A gitignored `.env` is easier than either and
+    keeps the keys out of shell history.
+
+    Deliberately does not overwrite variables already set in the environment:
+    an explicitly exported key should always beat a file on disk.
+
+    Format is one KEY=value per line. Blank lines and `#` comments are skipped,
+    `export ` prefixes are tolerated, and surrounding quotes are stripped.
+    """
+    path = Path(path) if path else REPO_ROOT / ".env"
+    if not path.exists():
+        return []
+
+    loaded: list[str] = []
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
 def load_vertical(vertical_id: str) -> dict:
     """Load a vertical config by id, with a listing of what exists if it does not.
 
