@@ -1,7 +1,14 @@
 """Command-line entry point.
 
-    python -m mcds.cli examples/sample_deal.yaml --dry-run
-    python -m mcds.cli examples/sample_deal.yaml --out out/
+After `pip install -e .` the console script is on the path, which is the
+invocation that behaves identically across macOS, Linux, and Windows:
+
+    mcds examples/sample_deal.yaml --dry-run
+    mcds examples/sample_deal.yaml --out out/
+
+`python -m mcds.cli ...` is equivalent. Without installing, the package under
+src/ has to be put on the path by hand, and that syntax is shell-specific --
+see the README.
 """
 
 from __future__ import annotations

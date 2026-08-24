@@ -1,6 +1,7 @@
 # A deal under evaluation. This is the only file a user writes by hand.
 #
-#   python -m mcds.cli examples/sample_deal.yaml --dry-run
+#   pip install -e .
+#   mcds examples/sample_deal.yaml --dry-run
 #
 # --dry-run walks the full orchestration against fixtures/ with no network calls
 # and no API keys, which is how the scoring path is exercised in tests.

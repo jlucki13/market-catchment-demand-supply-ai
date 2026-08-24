@@ -12,18 +12,49 @@ against that same polygon, plus the seller's claims tested against it.
 
 ## Try it without any API keys
 
+Install once, editable, from the repo root. This works the same on macOS, Linux,
+and Windows, and puts `mcds` on your path:
+
 ```bash
-pip install pyyaml jsonschema
-PYTHONPATH=src python3 -m mcds.cli examples/sample_deal.yaml --dry-run
+python -m venv .venv                       # optional but recommended
+source .venv/bin/activate                  # Windows: .venv\Scripts\Activate.ps1
+
+pip install -e ".[dev]"
+mcds examples/sample_deal.yaml --dry-run
+pytest -q                                  # 53 tests
 ```
 
 `--dry-run` walks the full orchestration against `fixtures/` with no network
-calls, which is how the scoring path is exercised in tests and how a formula
-change is verified without spending on APIs.
+calls, no API keys, and no charges. It is how the scoring path is exercised in
+tests and how a formula change is verified before spending on APIs.
+
+<details>
+<summary>Running without installing</summary>
+
+The package lives under `src/`, so Python needs to be told where to find it.
+The syntax differs by shell, which is why the editable install above is the
+recommended path.
 
 ```bash
-PYTHONPATH=src python3 -m pytest tests/ -q      # 53 tests
+# macOS / Linux (bash, zsh)
+PYTHONPATH=src python3 -m mcds.cli examples/sample_deal.yaml --dry-run
 ```
+
+```powershell
+# Windows PowerShell -- the VAR=value prefix is Unix syntax and fails here
+$env:PYTHONPATH="src"; python -m mcds.cli examples/sample_deal.yaml --dry-run
+```
+
+```bat
+:: Windows cmd.exe
+set PYTHONPATH=src && python -m mcds.cli examples/sample_deal.yaml --dry-run
+```
+
+On Windows use `python`, not `python3` -- the latter is often a stub that opens
+the Microsoft Store. Requires Python 3.11+ and `pip install pyyaml` (plus
+`jsonschema` for schema validation, which is optional and skipped when absent).
+
+</details>
 
 ## Status
 
