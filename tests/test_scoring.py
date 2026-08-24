@@ -19,6 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from mcds.catchment.isochrone import polygon_area_sq_km, simplify_ring  # noqa: E402
 from mcds.config import load_deal, load_vertical, validate  # noqa: E402
 from mcds.moe import Estimate, proportion_moe, sum_estimates  # noqa: E402
 from mcds.pipeline import run, score  # noqa: E402
@@ -404,6 +405,60 @@ def test_point_in_polygon():
     ring = [[-74.05, 40.65], [-73.95, 40.65], [-73.95, 40.75], [-74.05, 40.75], [-74.05, 40.65]]
     assert point_in_polygon((40.70, -74.00), ring) is True
     assert point_in_polygon((40.80, -74.00), ring) is False
+
+
+# --- catchment geometry -----------------------------------------------------
+
+
+def test_polygon_area_is_spherical_not_planar():
+    """A planar shoelace on raw degrees is off by cos(latitude) -- 24% at 40N."""
+    one_degree_square = [[0, 40], [1, 40], [1, 41], [0, 41], [0, 40]]
+    assert polygon_area_sq_km(one_degree_square) == pytest.approx(9400, rel=0.02)
+
+
+def test_polygon_area_is_orientation_independent():
+    ring = [[0, 40], [1, 40], [1, 41], [0, 41], [0, 40]]
+    assert polygon_area_sq_km(ring) == pytest.approx(polygon_area_sq_km(ring[::-1]))
+
+
+def test_degenerate_ring_has_no_area():
+    assert polygon_area_sq_km([[0, 40], [1, 40], [0, 40]]) == 0.0
+
+
+def test_simplify_reduces_vertices_and_stays_closed():
+    ring = json.loads((FIXTURES / "sunnyside_catchment.json").read_text())
+    ring = ring["polygon"]["coordinates"][0]
+    simplified = simplify_ring(ring, 0.25)
+    assert len(simplified) < len(ring)
+    assert simplified[0] == simplified[-1], "a simplified ring must still close"
+    assert len(simplified) >= 4
+
+
+def test_simplification_tolerance_trades_shape_for_vertices():
+    """The tolerance-to-distortion relationship must be monotonic and visible.
+
+    Simplification changes the area being measured, so callers have to be able
+    to reason about the cost. A catchment quietly shrunk to fit a request limit
+    is a silently wrong demand estimate.
+    """
+    ring = json.loads((FIXTURES / "sunnyside_catchment.json").read_text())
+    ring = ring["polygon"]["coordinates"][0]
+    base = polygon_area_sq_km(ring)
+
+    counts, drifts = [], []
+    for tol in (0.05, 0.1, 0.25, 0.5):
+        s = simplify_ring(ring, tol)
+        counts.append(len(s))
+        drifts.append(abs(polygon_area_sq_km(s) - base) / base)
+
+    assert counts == sorted(counts, reverse=True), "more tolerance, fewer vertices"
+    assert drifts == sorted(drifts), "more tolerance, more area distortion"
+    assert drifts[0] < 0.01, "a gentle tolerance should barely move the area"
+
+
+def test_tiny_ring_passes_through_untouched():
+    triangle = [[0, 40], [1, 40], [0.5, 41], [0, 40]]
+    assert simplify_ring(triangle, 5.0) == triangle
 
 
 # --- provenance -------------------------------------------------------------

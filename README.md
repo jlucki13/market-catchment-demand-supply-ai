@@ -56,6 +56,22 @@ the Microsoft Store. Requires Python 3.11+ and `pip install pyyaml` (plus
 
 </details>
 
+## Before building connectors: run the probe
+
+`scripts/probe.py` hits Mapbox and the Places Aggregate API for one real address
+and answers the three questions that could invalidate the architecture — whether
+a Mapbox isochrone ring is accepted as-is, whether a real catchment exceeds the
+100-place cap, and what the SKUs actually cost. Costs about one coffee.
+
+```powershell
+$env:GOOGLE_MAPS_API_KEY="..."; $env:MAPBOX_ACCESS_TOKEN="..."
+python scripts/probe.py "4820 Skillman Ave, Sunnyside, NY 11104" --vertical laundromat
+```
+
+Its request shapes come from documentation research and have not been executed
+against the live APIs — discrepancies are the finding, so every call prints its
+raw status and body on failure.
+
 ## Status
 
 Phase 0 is complete and tested: schemas, vertical configs, the full scoring
