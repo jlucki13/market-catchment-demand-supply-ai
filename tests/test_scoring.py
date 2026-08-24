@@ -22,7 +22,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from mcds.catchment.isochrone import polygon_area_sq_km, simplify_ring  # noqa: E402
 from mcds.config import load_deal, load_vertical, validate  # noqa: E402
 from mcds.moe import Estimate, proportion_moe, sum_estimates  # noqa: E402
-from mcds.pipeline import run, score  # noqa: E402
+from mcds.pipeline import apply_priors, run, score  # noqa: E402
+from mcds.reasoning.classify import classify_from_priors  # noqa: E402
+from mcds.supply.places import chain_key, detect_chains, strip_transient  # noqa: E402
 from mcds.provenance import ProvenanceError, verify  # noqa: E402
 from mcds.reasoning.client import RoutingConfig, build_request  # noqa: E402
 from mcds.scoring.geography import find_clusters, haversine_km, point_in_polygon  # noqa: E402
@@ -511,6 +513,88 @@ def test_provenance_requires_a_falsifier_on_every_flag():
 def test_provenance_allows_years_and_small_counts():
     memo = "3 of the 9 competitors opened before 2019."
     assert verify(_findings(memo), SCORECARD, strict=False) == []
+
+
+# --- zero-cost path ---------------------------------------------------------
+
+
+def test_chain_key_strips_branch_numbers_not_brands():
+    assert chain_key("SuperClean Laundry #3") == chain_key("SuperClean Laundry #7")
+    assert chain_key("SuperClean Laundry #3") != chain_key("Skillman Wash & Fold")
+
+
+def test_detect_chains_needs_two_locations():
+    """A unique name is not a chain of one."""
+    solo = [{"place_id": "a", "name": "Corner Wash"}]
+    assert detect_chains(solo) == {}
+
+    pair = [
+        {"place_id": "a", "name": "SuperClean Laundry #3"},
+        {"place_id": "b", "name": "SuperClean Laundry #7"},
+        {"place_id": "c", "name": "Corner Wash"},
+    ]
+    groups = detect_chains(pair)
+    assert groups["a"] == groups["b"]
+    assert "c" not in groups
+
+
+def test_priors_classification_is_always_low_confidence():
+    """Category priors cannot see the business, only its label. Say so."""
+    vertical = load_vertical("laundromat")
+    competitors = [
+        {"place_id": "a", "primary_type": "laundry", "types": ["laundry"]},
+        {"place_id": "b", "primary_type": "dry_cleaner", "types": ["dry_cleaner"]},
+    ]
+    result = classify_from_priors(competitors, vertical)
+    assert [c["substitutability"] for c in result["classifications"]] == ["direct", "adjacent"]
+    assert all(c["confidence"] == "low" for c in result["classifications"])
+    assert any("category-level" in c for c in result["coverage_concerns"])
+
+
+def test_unknown_place_type_is_reported_not_hidden():
+    """Scoring an unrecognised type as a non-competitor understates supply."""
+    vertical = load_vertical("laundromat")
+    result = classify_from_priors(
+        [{"place_id": "a", "primary_type": "car_wash", "types": ["car_wash"]}], vertical
+    )
+    assert result["classifications"][0]["substitutability"] == "none"
+    assert any("car_wash" in c for c in result["coverage_concerns"])
+
+
+def test_no_llm_run_produces_a_scorecard_and_warns_about_it():
+    """The whole pipeline must be runnable at zero model spend."""
+    deal = load_deal(ROOT / "examples" / "sample_deal.yaml")
+    result = run(deal, dry_run=True, use_llm=False)
+    validate(result.scorecard, "scorecard")
+    assert result.findings is None
+    assert result.scorecard["supply"]["index"] > 0
+    assert any(
+        "category priors" in w for w in result.scorecard["warnings"]
+    ), "a priors-only supply read must announce itself in the memo"
+
+
+def test_apply_priors_finds_the_chain_without_a_model():
+    competitors = json.loads((FIXTURES / "sunnyside_competitors.json").read_text())
+    for c in competitors:
+        c.pop("substitutability", None)
+        c.pop("chain_group", None)
+    apply_priors(competitors, load_vertical("laundromat"))
+    chained = [c for c in competitors if c.get("chain_group")]
+    assert len(chained) == 2
+    assert all(c["substitutability"] for c in competitors)
+
+
+def test_strip_transient_drops_everything_the_tos_forbids():
+    record = {
+        "place_id": "abc", "name": "Joe Coffee", "rating": 4.5,
+        "user_rating_count": 210, "substitutability": "direct", "weight": 0.9,
+    }
+    kept = strip_transient(record)
+    assert kept["place_id"] == "abc"
+    assert kept["persistable"] is True
+    assert kept["substitutability"] == "direct", "our own judgments are ours to keep"
+    for forbidden in ("name", "rating", "user_rating_count"):
+        assert forbidden not in kept
 
 
 # --- model routing ----------------------------------------------------------

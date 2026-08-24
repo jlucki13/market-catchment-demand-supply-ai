@@ -35,6 +35,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="Directory to write memo and scorecard into")
     parser.add_argument("--settings", type=Path, help="Path to a settings file")
     parser.add_argument(
+        "--no-llm", action="store_true",
+        help="Run with no model calls and no Anthropic spend. Substitutability "
+             "falls back to vertical-config category priors and the synthesis "
+             "and review stages are skipped.",
+    )
+    parser.add_argument(
         "--no-strict-provenance", action="store_true",
         help="Report provenance violations instead of refusing to render. "
              "Intended for debugging a prompt, not for producing a memo.",
@@ -48,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         settings=settings,
         strict_provenance=not args.no_strict_provenance,
+        use_llm=not args.no_llm,
     )
 
     if args.out:

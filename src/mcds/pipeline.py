@@ -21,10 +21,12 @@ from typing import Any
 from .config import REPO_ROOT, load_settings, load_vertical, validate
 from .moe import Estimate
 from .provenance import verify
+from .reasoning.classify import classify_from_priors
 from .render.memo import render_markdown
 from .scoring.geography import analyze_geography
 from .scoring.indices import compute_balance, compute_demand_index, compute_supply_index
 from .scoring.scorecard import build_scorecard
+from .supply.places import detect_chains
 
 FIXTURES = REPO_ROOT / "fixtures"
 
@@ -69,6 +71,7 @@ def score(
     *,
     benchmark: dict | None = None,
     census_count: int | None = None,
+    extra_warnings: list[str] | None = None,
 ) -> dict:
     """The deterministic half: everything from raw data to scorecard.
 
@@ -95,7 +98,7 @@ def score(
         min_samples=clustering.get("min_samples", 3),
     )
 
-    extra: list[str] = []
+    extra: list[str] = list(extra_warnings or [])
     if catchment.get("traffic_aware") is False:
         extra.append(
             "The catchment was generated from a free-flow driving profile with no "
@@ -123,14 +126,49 @@ def score(
     return scorecard
 
 
+def apply_priors(competitors: list[dict], vertical: dict) -> list[str]:
+    """Classify and group chains deterministically. Returns warnings to surface.
+
+    The zero-cost path: chain detection is name-based and substitutability comes
+    from the vertical config's category priors. Mutates `competitors` in place
+    and hands back the caveats the memo has to carry, because a category-level
+    supply read that does not announce itself as one is worse than no read.
+    """
+    chains = detect_chains(competitors)
+    for c in competitors:
+        c.setdefault("chain_group", chains.get(c["place_id"]))
+
+    result = classify_from_priors(competitors, vertical)
+    by_id = {r["place_id"]: r for r in result["classifications"]}
+    for c in competitors:
+        r = by_id.get(c["place_id"])
+        if r:
+            c["substitutability"] = r["substitutability"]
+            c["substitutability_reason"] = r["reason"]
+            c["classifier_confidence"] = r["confidence"]
+
+    return [
+        "Substitutability was assigned from vertical-config category priors "
+        "rather than by a model, so every competitor call is category-level and "
+        "tagged low confidence."
+    ] + result["coverage_concerns"]
+
+
 def run(
     deal: dict,
     *,
     dry_run: bool = False,
     settings: dict | None = None,
     strict_provenance: bool = True,
+    use_llm: bool = True,
 ) -> RunResult:
-    """Full pipeline for one deal."""
+    """Full pipeline for one deal.
+
+    `use_llm=False` runs the whole thing with no model calls and therefore no
+    Anthropic spend: classification falls back to config priors and the
+    synthesis and review stages are skipped, leaving the deterministic scorecard
+    and a memo built from it. See docs/running-free.md.
+    """
     settings = settings or load_settings()
     vertical = load_vertical(deal["vertical"])
 
@@ -147,13 +185,18 @@ def run(
             deal, vertical, settings
         )
 
+    priors_warnings: list[str] = []
+    if not use_llm:
+        priors_warnings = apply_priors(competitors, vertical)
+
     scorecard = score(
         deal, vertical, catchment, demographics, competitors,
         benchmark=benchmark, census_count=census_count,
+        extra_warnings=priors_warnings,
     )
 
     findings = review = None
-    if not dry_run:
+    if not dry_run and use_llm:
         findings, review = _reason(
             scorecard, competitors, demographics, deal, vertical, settings
         )

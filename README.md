@@ -72,6 +72,20 @@ Its request shapes come from documentation research and have not been executed
 against the live APIs — discrepancies are the finding, so every call prints its
 raw status and body on failure.
 
+## Running it for free
+
+Every external service except Anthropic has a free tier that covers a realistic
+deal pipeline, and `--no-llm` removes the Anthropic dependency entirely:
+
+```bash
+mcds examples/sample_deal.yaml --no-llm    # zero model spend
+```
+
+Substitutability then comes from vertical-config category priors rather than a
+model, and synthesis is skipped. See [docs/running-free.md](docs/running-free.md)
+for per-service budgets, which field mask to use, and what the priors path gives
+up.
+
 ## Status
 
 Phase 0 is complete and tested: schemas, vertical configs, the full scoring
@@ -87,6 +101,7 @@ docs/PRD.md                  the product spec — read this first
 docs/scoring-methodology.md  every formula and the reasoning behind each constant
 docs/model-routing.md        which Claude model runs which stage, and why
 docs/data-sources.md         per-API limits, terms of service, data vintages
+docs/running-free.md         free-tier budgets and the zero-cost --no-llm path
 
 config/verticals/*.yaml      per-category tuning. A new vertical is a new file here
 config/settings.example.yaml credentials, model assignments, API defaults

@@ -101,6 +101,77 @@ def build_prompt(competitors: Sequence[dict], vertical: dict) -> tuple[list[dict
     return cached_system(stable), user
 
 
+def classify_from_priors(competitors: Sequence[dict], vertical: dict) -> dict:
+    """Classify using only the vertical config priors -- no model, no cost.
+
+    Every vertical config already maps Google place types to a substitutability
+    level. Applying that map directly is deterministic, free, and instant, which
+    makes the whole pipeline runnable at zero LLM spend.
+
+    What it gives up is the judgment the classification stage exists for. Priors
+    see a category label; a model sees the business. It cannot tell a $10/month
+    high-volume gym from a $200/month boutique studio, both typed `gym`. It
+    cannot separate a self-service laundromat from a drop-off dry cleaner when
+    Google files both under `laundry`. It cannot notice that a gas-station
+    coffee counter on the commute side of the road substitutes more completely
+    than a better cafe two blocks off it.
+
+    So every classification here is marked `low` confidence and the run carries
+    a warning saying the supply read is category-level only. That is the honest
+    label: this is a usable first pass, not the analysis the PRD describes.
+    """
+    priors = (vertical.get("substitution", {}) or {}).get("priors", {}) or {}
+    out = []
+    unknown_types: set[str] = set()
+
+    for c in competitors:
+        candidates = [c.get("primary_type")] + list(c.get("types") or [])
+        level = None
+        matched = None
+        for t in candidates:
+            if t and t in priors:
+                level, matched = priors[t], t
+                break
+        if level is None:
+            level = "none"
+            for t in candidates:
+                if t:
+                    unknown_types.add(t)
+
+        out.append({
+            "place_id": c["place_id"],
+            "substitutability": level,
+            "confidence": "low",
+            "reason": (
+                f"Config prior for place type '{matched}'."
+                if matched
+                else "No config prior matched this place's types; scored as a "
+                     "non-competitor, which may understate supply."
+            ),
+            "overrode_prior": False,
+            "chain_group": c.get("chain_group"),
+        })
+
+    concerns = [
+        "Substitutability came from category priors rather than a model, so "
+        "every call is category-level. Businesses sharing a Google type but "
+        "serving different customers -- a budget gym and a boutique studio, a "
+        "self-service laundromat and a drop-off dry cleaner -- are scored "
+        "identically here.",
+        "Competition invisible to Places data was not assessed at all: "
+        "municipal facilities, employer and apartment-complex amenities, "
+        "in-home substitutes, and businesses too new to be listed.",
+    ]
+    if unknown_types:
+        concerns.append(
+            "These place types had no config prior and were scored as "
+            "non-competitors: " + ", ".join(sorted(unknown_types)) + ". If any "
+            "of them do compete, add them to the vertical config."
+        )
+
+    return {"classifications": out, "coverage_concerns": concerns}
+
+
 def classify(
     competitors: Sequence[dict],
     vertical: dict,
