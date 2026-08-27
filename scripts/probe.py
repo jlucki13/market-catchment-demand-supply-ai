@@ -48,10 +48,12 @@ from typing import Any
 import requests
 
 from mcds.catchment.isochrone import polygon_area_sq_km, simplify_ring
+from mcds.scoring.geography import haversine_km
 from mcds.config import load_dotenv, load_vertical
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 MAPBOX_URL = "https://api.mapbox.com/isochrone/v1/mapbox/{profile}/{lng},{lat}"
+ROUTE_MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
 AGGREGATE_URL = "https://areainsights.googleapis.com/v1:computeInsights"
 DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 
@@ -202,10 +204,24 @@ def aggregate(ring: list, types: list[str], api_key: str) -> dict | None:
     return None
 
 
-def details(place_ids: list[str], api_key: str, limit: int) -> None:
-    hr(f"4. Place Details (first {limit})")
-    mask = ("id,displayName,primaryType,rating,userRatingCount,priceLevel,"
-            "businessStatus,regularOpeningHours,reviews")
+#: Names that suggest a drop-off dry cleaner rather than a self-service
+#: laundromat. Google files both under `laundry`, so the name is the only
+#: separator available before a model reads the record.
+DRY_CLEANER_HINTS = ("cleaner", "dry clean", "drycl", "tailor", "alteration")
+
+
+def details(place_ids: list[str], api_key: str, limit: int) -> list[dict]:
+    """Enrich a shortlist and report what the data actually supports.
+
+    Uses the STANDARD mask -- rating and review count, no review bodies. Review
+    text is what pushes the call into the most expensive tier, and it feeds only
+    the business-age guess. See docs/running-free.md.
+    """
+    hr(f"4. Place Details (first {limit} of {len(place_ids)})")
+    mask = ("id,displayName,formattedAddress,location,primaryType,rating,"
+            "userRatingCount,priceLevel,businessStatus,regularOpeningHours")
+    out: list[dict] = []
+
     for pid in place_ids[:limit]:
         r = requests.get(
             DETAILS_URL.format(place_id=pid),
@@ -216,15 +232,113 @@ def details(place_ids: list[str], api_key: str, limit: int) -> None:
             fail(r, f"details {pid}")
             continue
         d = r.json()
-        reviews = d.get("reviews", []) or []
-        oldest = min((rv.get("publishTime", "") for rv in reviews), default=None)
-        print(f"\n  {d.get('displayName', {}).get('text', pid)}")
-        print(f"    type={d.get('primaryType')}  rating={d.get('rating')} "
-              f"({d.get('userRatingCount')} reviews)  price={d.get('priceLevel')}")
-        print(f"    reviews returned: {len(reviews)} (API caps at 5)")
-        print(f"    oldest review publishTime: {oldest or 'none'}")
-        print("    ^ this is the ONLY business-age signal available, and it is a "
-              "loose lower bound")
+        name = d.get("displayName", {}).get("text", pid)
+        hours = d.get("regularOpeningHours", {}) or {}
+        looks_dry = any(h in name.lower() for h in DRY_CLEANER_HINTS)
+        out.append({
+            "place_id": d.get("id", pid), "name": name,
+            "location": d.get("location"), "rating": d.get("rating"),
+            "user_rating_count": d.get("userRatingCount"),
+            "price_level": d.get("priceLevel"),
+            "open_24h": hours.get("openNow") is not None and len(hours.get("periods", [])) == 1,
+            "looks_like_dry_cleaner": looks_dry,
+        })
+        flag = "  <- reads as a dry cleaner, not self-service" if looks_dry else ""
+        print(f"  {name[:44]:<44} {str(d.get('rating') or '-'):>4} "
+              f"({str(d.get('userRatingCount') or 0):>4} rev) "
+              f"{d.get('priceLevel') or '':<26}{flag}")
+
+    missing_rating = sum(1 for d in out if d["rating"] is None)
+    missing_price = sum(1 for d in out if d["price_level"] is None)
+    suspected = sum(1 for d in out if d["looks_like_dry_cleaner"])
+    print(f"\n  {len(out)} enriched. Missing rating: {missing_rating}. "
+          f"Missing price level: {missing_price}.")
+    if suspected:
+        print(f"  {suspected} of {len(out)} read as dry cleaners by name. Google "
+              f"types them all `laundry`,")
+        print(f"  so a category-level read would score every one a direct "
+              f"competitor. This is the")
+        print(f"  gap the classification stage exists to close.")
+    return out
+
+
+def route_matrix(origin: dict, enriched: list[dict], api_key: str) -> None:
+    """One origin to every competitor in a single request. Validates the shape.
+
+    The 625-element cap means a whole catchment fits in one call, so this is the
+    cheapest stage in the pipeline per unit of information.
+    """
+    hr("5. Routes -- computeRouteMatrix")
+    located = [e for e in enriched if e.get("location")]
+    if not located:
+        print("  No competitor coordinates to route to.")
+        return
+
+    body = {
+        "origins": [{"waypoint": {"location": {"latLng": {
+            "latitude": origin["lat"], "longitude": origin["lng"]}}}}],
+        "destinations": [
+            {"waypoint": {"location": {"latLng": {
+                "latitude": e["location"]["latitude"],
+                "longitude": e["location"]["longitude"]}}}}
+            for e in located
+        ],
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE",
+    }
+    r = requests.post(
+        ROUTE_MATRIX_URL,
+        headers={
+            "X-Goog-Api-Key": api_key,
+            "Content-Type": "application/json",
+            "X-Goog-FieldMask": ("originIndex,destinationIndex,duration,"
+                                 "distanceMeters,condition"),
+        },
+        json=body,
+        timeout=TIMEOUT,
+    )
+    if r.status_code != 200:
+        fail(r, "route matrix")
+        return
+
+    rows = r.json()
+    print(f"  {len(located)} destinations in ONE request "
+          f"(cap is 625 elements).\n")
+    ok = [x for x in rows if x.get("condition") == "ROUTE_EXISTS"]
+    for row in sorted(ok, key=lambda x: x.get("duration", "9999s"))[:8]:
+        e = located[row["destinationIndex"]]
+        minutes = int(row.get("duration", "0s").rstrip("s")) / 60
+        km = row.get("distanceMeters", 0) / 1000
+        straight = haversine_km(
+            (origin["lat"], origin["lng"]),
+            (e["location"]["latitude"], e["location"]["longitude"]),
+        )
+        detour = km / straight if straight else 0
+        marker = "  <- barrier between here and there" if detour > 1.6 else ""
+        print(f"  {e['name'][:36]:<36} {minutes:5.1f} min  {km:5.2f} km road / "
+              f"{straight:5.2f} km direct = {detour:.2f}x{marker}")
+
+    failed = len(rows) - len(ok)
+    if failed:
+        print(f"\n  {failed} destination(s) unroutable "
+              f"(condition != ROUTE_EXISTS).")
+    detours = [
+        (row.get("distanceMeters", 0) / 1000) / haversine_km(
+            (origin["lat"], origin["lng"]),
+            (located[row["destinationIndex"]]["location"]["latitude"],
+             located[row["destinationIndex"]]["location"]["longitude"]))
+        for row in ok
+        if haversine_km(
+            (origin["lat"], origin["lng"]),
+            (located[row["destinationIndex"]]["location"]["latitude"],
+             located[row["destinationIndex"]]["location"]["longitude"])) > 0.05
+    ]
+    if detours:
+        over = sum(1 for d in detours if d > 1.6)
+        print(f"\n  Median detour ratio {sorted(detours)[len(detours)//2]:.2f}x. "
+              f"{over} of {len(detours)} exceed 1.6x.")
+        print("  Every one of those is a competitor that a radius-based analysis")
+        print("  would count at full strength and drive time correctly discounts.")
 
 
 CENSUS_TEST_URL = "https://api.census.gov/data/2023/acs/acs5"
@@ -503,8 +617,11 @@ def main() -> int:
         return 1
 
     place_ids = [p.get("place", "").split("/")[-1] for p in result["places"]]
+    enriched: list[dict] = []
     if args.details and place_ids:
-        details(place_ids, google_key, args.details)
+        enriched = details(place_ids, google_key, args.details)
+        if enriched:
+            route_matrix(origin, enriched, google_key)
 
     hr("VERDICT")
     print(f"Q1  Polygon accepted at tolerance {result['tolerance_km']} km "
