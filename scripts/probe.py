@@ -223,6 +223,36 @@ def details(place_ids: list[str], api_key: str, limit: int) -> None:
 CENSUS_TEST_URL = "https://api.census.gov/data/2023/acs/acs5"
 
 
+def google_hint(status: str, message: str) -> str:
+    """Translate Google's error strings into the console action that fixes them.
+
+    Google's setup errors are accurate but not actionable -- REQUEST_DENIED
+    covers a missing billing account, an unenabled API, and an over-restricted
+    key, which are three different fixes in three different console screens.
+    """
+    text = f"{status} {message}".lower()
+
+    if "billing" in text:
+        return ("      -> Billing is not enabled on the project. Console > Billing >\n"
+                "         Link a billing account. The free tier still requires one.")
+    if "not authorized" in text or "not been used" in text or "disabled" in text:
+        return ("      -> The API is not enabled on this project. Console >\n"
+                "         APIs & Services > Library, search it, click Enable. Note\n"
+                "         'Places API (New)' is a SEPARATE entry from 'Places API'.")
+    if "referer" in text or "ip" in text or "restrict" in text:
+        return ("      -> The key's Application restriction is blocking a server-side\n"
+                "         call. Console > Credentials > your key > Application\n"
+                "         restrictions > None. Keep the API restrictions.")
+    if "expired" in text or "invalid" in text or status == "INVALID_REQUEST":
+        return ("      -> The key string looks wrong. Check for a trailing space or\n"
+                "         a partial paste in .env.")
+    if status == "OVER_QUERY_LIMIT":
+        return ("      -> Free-tier allowance exhausted for this SKU this month, or\n"
+                "         a per-minute quota was hit. Check Console > Quotas.")
+    return ("      -> Check Console > APIs & Services > Credentials, and confirm\n"
+            "         billing is active on the project.")
+
+
 def check_keys() -> int:
     """Verify each key that is set, with one cheap call apiece.
 
@@ -288,10 +318,9 @@ def check_keys() -> int:
         if data.get("status") == "OK":
             results["Google"] = "OK -- Geocoding responded (other APIs not tested)"
         else:
-            results["Google"] = (
-                f"FAILED -- status={data.get('status', r.status_code)} "
-                f"{data.get('error_message', r.text[:200])}"
-            )
+            status = data.get("status", str(r.status_code))
+            message = data.get("error_message", r.text[:200])
+            results["Google"] = f"FAILED -- {status}: {message}\n{google_hint(status, message)}"
 
     for service, outcome in results.items():
         marker = {"OK": "  OK ", "no": "  -- ", "FA": "  !! "}[outcome[:2]]
