@@ -33,28 +33,35 @@ substitution:
     convenience_store: none
     storage: none
   guidance: >
-    Google has no separate dry-cleaner type, so `laundry` arrives as one bucket
-    holding both self-service laundromats and drop-off dry cleaners -- different
-    businesses serving different customers. Separating them is the single most
-    valuable judgment you make on this vertical, and it has to come from the
-    name, hours, and price level: 24-hour operation and no "cleaners" or
-    "dry clean" in the name strongly suggest self-service. Score a dry cleaner
-    `adjacent` at most for a coin-laundry customer.
+    Google's `laundry` type is far wider than it sounds, and this is the whole
+    difficulty of the vertical. A real 10-minute Denver catchment returned 33
+    places typed `laundry`, of which roughly 9 were actual self-service
+    laundromats. The rest were drop-off dry cleaners, carpet cleaners,
+    janitorial and commercial facility firms, house-cleaning crews, and one
+    appliance retailer.
 
-    This is also why the priors-only path (--no-llm) is weak here specifically:
-    it scores every `laundry` as a direct competitor, dry cleaners included, and
-    so overstates supply. Say so when it applies.
+    So the first question on every record is not how strongly it competes but
+    whether it is a laundromat at all. Read the name first: carpet, janitorial,
+    facility, restoration, upholstery, duct, maid, crew, and appliance all
+    indicate a business with no coin-laundry customers whatsoever -- score those
+    `none`. Names containing cleaners, dry clean, martinizing, alterations, or
+    tailor without any laundry word indicate a drop-off dry cleaner, which is
+    `adjacent` at most. Laundromat, coin laundry, wash, and washateria indicate
+    the real thing.
 
-    Wash-and-fold offered by a laundromat competes with dry cleaners, not the
-    reverse. Card-operated modern stores compete differently from coin-only
-    legacy ones.
+    Watch for the trap that entrenchment sets here. In that Denver catchment the
+    single most-reviewed business, at 581 reviews, was a commercial cleaning
+    company -- it would rank as the strongest competitor in the market while
+    competing for nothing. High review counts on non-competitors are common in
+    this bucket, because commercial services accumulate reviews faster than
+    coin laundries do.
 
-clustering:
-  # DBSCAN radius for detecting competitor corridors. Density-sensitive: too
-  # wide and every competitor lands in one cluster, which says nothing.
-  # Dense urban laundromat markets sit a few blocks apart; 0.8 km merges the whole catchment into one blob.
-  eps_km: 0.4
-  min_samples: 3
+    Price level is effectively unavailable: it was missing on 32 of 33 records.
+    Do not rely on it to separate formats in this vertical.
+
+    Among the genuine laundromats, 24-hour operation, card versus coin, and
+    attended wash-dry-fold service are the distinctions that matter. Wash-and-fold
+    offered by a laundromat competes with dry cleaners, not the reverse.
 
 demand:
   # The demand driver here is renter-occupied housing without in-unit laundry,

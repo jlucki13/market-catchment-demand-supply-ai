@@ -179,6 +179,44 @@ def aggregate(ring: list, types: list[str], api_key: str) -> dict | None:
             count = int(data.get("count", 0))
             places = data.get("placeInsights", []) or []
             print(f"  ACCEPTED. count={count}, place IDs returned={len(places)}")
+
+            # `includedTypes` matches a place's primary OR secondary types, which
+            # is how a carpet-cleaning firm carrying `laundry` as a secondary tag
+            # lands in a laundromat census. `includedPrimaryTypes` matches only
+            # the single primary type. One extra call says how much precision
+            # that buys on this market.
+            strict = requests.post(
+                AGGREGATE_URL,
+                headers={"X-Goog-Api-Key": api_key, "Content-Type": "application/json"},
+                json={
+                    "insights": ["INSIGHT_COUNT"],
+                    "filter": {
+                        "locationFilter": {"customArea": {"polygon": to_google_polygon(candidate)}},
+                        "typeFilter": {"includedPrimaryTypes": types},
+                        "operatingStatus": ["OPERATING_STATUS_OPERATIONAL"],
+                    },
+                },
+                timeout=TIMEOUT,
+            )
+            if strict.status_code == 200:
+                strict_count = int(strict.json().get("count", 0))
+                print(f"\n  Same polygon with includedPrimaryTypes: "
+                      f"count={strict_count} (vs {count} with includedTypes)")
+                if strict_count < count:
+                    print(f"  -> Primary-type filtering drops "
+                          f"{count - strict_count} places. Those carry `laundry` "
+                          f"as a")
+                    print(f"     secondary tag only, which is how commercial "
+                          f"cleaners get into a")
+                    print(f"     laundromat census. Cheap precision if the "
+                          f"dropped ones are noise.")
+                else:
+                    print(f"  -> No reduction. The contamination is in primary "
+                          f"types, so only the")
+                    print(f"     classification stage can remove it.")
+            else:
+                fail(strict, "includedPrimaryTypes comparison")
+
             return {
                 "count": count,
                 "places": places,
@@ -204,10 +242,37 @@ def aggregate(ring: list, types: list[str], api_key: str) -> dict | None:
     return None
 
 
-#: Names that suggest a drop-off dry cleaner rather than a self-service
-#: laundromat. Google files both under `laundry`, so the name is the only
-#: separator available before a model reads the record.
-DRY_CLEANER_HINTS = ("cleaner", "dry clean", "drycl", "tailor", "alteration")
+#: Google's `laundry` bucket is far wider than dry cleaners. A real Denver
+#: catchment returned carpet cleaners, janitorial firms, commercial facility
+#: services, and an appliance retailer -- none of which compete with a coin
+#: laundry at all. These lists are a rough triage for the probe's report only;
+#: the classification stage is what actually decides.
+LAUNDROMAT_HINTS = ("laundromat", "laundry", "coin", "wash", "washateria", "spin")
+DRY_CLEANER_HINTS = ("cleaner", "dry clean", "drycl", "martinizing", "alteration", "tailor")
+NOT_COMPETITOR_HINTS = (
+    "carpet", "janitor", "facility", "facilities", "maid", "housekeep", "crew",
+    "restoration", "duct", "window", "upholstery", "appliance", "pressure",
+    "commercial cleaning", "cleaning services", "corporate",
+)
+
+
+def triage(name: str) -> str:
+    """Rough guess at what a `laundry`-typed business actually is.
+
+    Order matters: "Advance Carpet Cleaning" contains no laundry word but does
+    contain "carpet", and "Lamar Coin Laundry and Wash Dry Fold" contains both a
+    laundry word and none of the exclusions. Checking exclusions first would
+    misfile genuine laundromats whose names mention services.
+    """
+    low = name.lower()
+    has_laundry = any(h in low for h in LAUNDROMAT_HINTS)
+    if any(h in low for h in NOT_COMPETITOR_HINTS) and not has_laundry:
+        return "not-a-competitor"
+    if any(h in low for h in DRY_CLEANER_HINTS) and not has_laundry:
+        return "dry-cleaner"
+    if has_laundry:
+        return "laundromat"
+    return "unclear"
 
 
 def details(place_ids: list[str], api_key: str, limit: int) -> list[dict]:
@@ -234,31 +299,55 @@ def details(place_ids: list[str], api_key: str, limit: int) -> list[dict]:
         d = r.json()
         name = d.get("displayName", {}).get("text", pid)
         hours = d.get("regularOpeningHours", {}) or {}
-        looks_dry = any(h in name.lower() for h in DRY_CLEANER_HINTS)
+        guess = triage(name)
         out.append({
             "place_id": d.get("id", pid), "name": name,
             "location": d.get("location"), "rating": d.get("rating"),
             "user_rating_count": d.get("userRatingCount"),
             "price_level": d.get("priceLevel"),
             "open_24h": hours.get("openNow") is not None and len(hours.get("periods", [])) == 1,
-            "looks_like_dry_cleaner": looks_dry,
+            "triage": guess,
         })
-        flag = "  <- reads as a dry cleaner, not self-service" if looks_dry else ""
+        flag = "" if guess == "laundromat" else f"  <- {guess}"
         print(f"  {name[:44]:<44} {str(d.get('rating') or '-'):>4} "
               f"({str(d.get('userRatingCount') or 0):>4} rev) "
               f"{d.get('priceLevel') or '':<26}{flag}")
 
+    from collections import Counter
+    counts = Counter(d["triage"] for d in out)
     missing_rating = sum(1 for d in out if d["rating"] is None)
     missing_price = sum(1 for d in out if d["price_level"] is None)
-    suspected = sum(1 for d in out if d["looks_like_dry_cleaner"])
+
     print(f"\n  {len(out)} enriched. Missing rating: {missing_rating}. "
           f"Missing price level: {missing_price}.")
-    if suspected:
-        print(f"  {suspected} of {len(out)} read as dry cleaners by name. Google "
-              f"types them all `laundry`,")
-        print(f"  so a category-level read would score every one a direct "
-              f"competitor. This is the")
-        print(f"  gap the classification stage exists to close.")
+    if missing_price > len(out) * 0.5:
+        print(f"  Price level is absent on {missing_price} of {len(out)}. Any "
+              f"vertical guidance that leans on price tier to separate formats "
+              f"does not apply to this category.")
+
+    print(f"\n  Rough triage by name:")
+    for label in ("laundromat", "dry-cleaner", "not-a-competitor", "unclear"):
+        if counts[label]:
+            print(f"    {counts[label]:>3}  {label}")
+
+    real = counts["laundromat"]
+    if real < len(out):
+        print(f"\n  Only ~{real} of {len(out)} look like actual self-service "
+              f"laundromats. Google files")
+        print(f"  carpet cleaners, janitorial firms, and commercial services "
+              f"under `laundry` too.")
+        print(f"  A category-level read scores all {len(out)} as direct "
+              f"competitors, overstating")
+        print(f"  supply several-fold. This is what the classification stage "
+              f"exists to fix.")
+
+    loudest = max(out, key=lambda d: d.get("user_rating_count") or 0)
+    if loudest["triage"] != "laundromat":
+        print(f"\n  Note: the most-reviewed business here "
+              f"({loudest['name']}, {loudest['user_rating_count']} reviews)")
+        print(f"  is a {loudest['triage']}. Entrenchment would rank it the "
+              f"strongest competitor in")
+        print(f"  the market. It does not compete at all.")
     return out
 
 

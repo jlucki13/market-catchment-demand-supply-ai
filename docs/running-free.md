@@ -90,6 +90,37 @@ and the memo carries a warning saying the supply read is category-level only.
 That is a usable first pass, not the analysis the PRD describes. It is a good way
 to validate the data plumbing before spending on reasoning.
 
+### How much the priors path costs you, measured
+
+A live 10-minute catchment around a Denver address returned **33 places typed
+`laundry`**. Reading the names:
+
+| What they actually were | Count |
+|---|---|
+| Self-service laundromats | 9 |
+| Drop-off dry cleaners | 10 |
+| Carpet cleaners, janitorial, commercial services, one appliance retailer | 14 |
+
+The priors path scores all 33 as direct competitors, because Google's type is
+all it can see. Running the Supply Index both ways on that data:
+
+| | Supply Index |
+|---|---|
+| Priors — all 33 scored `direct` | 22.0 |
+| Correctly classified — 9 direct, 10 adjacent, 14 excluded | 6.9 |
+
+**A 3.2× overstatement of supply**, which is more than enough to flip a balance
+verdict from underserved to oversupplied and kill a deal that was fine.
+
+Worse, the single most-reviewed business in that catchment — 581 reviews, more
+than any real laundromat — was a commercial cleaning company. Entrenchment would
+rank it the strongest competitor in the market. It competes for nothing.
+
+So on a category like this, `--no-llm` is not a cheaper version of the analysis;
+it is a different and misleading one. Use it to validate plumbing. For a real
+deal read, classification at roughly $0.35 is the cheapest high-value spend in
+the whole pipeline.
+
 ## What the paid stages actually cost
 
 If you do turn the model stages on, per deal:
