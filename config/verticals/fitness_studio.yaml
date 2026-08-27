@@ -21,6 +21,14 @@ places:
   adjacent_types: [yoga_studio, sports_club, sports_complex, swimming_pool]
   context_types:  [physiotherapist, spa, park]
 
+  # primary -> `includedPrimaryTypes`, matching only a place's single primary
+  # type. any -> `includedTypes`, matching primary OR secondary types, which is
+  # wider recall and more noise.
+  # Untested on this vertical. Worth checking: hotel and apartment gyms may
+  # carry `gym` as a secondary type, and those are real competition that the
+  # narrower filter would hide.
+  type_filter_mode: primary
+
 substitution:
   priors:
     gym: direct

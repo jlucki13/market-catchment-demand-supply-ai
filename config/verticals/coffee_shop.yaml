@@ -25,6 +25,14 @@ places:
   adjacent_types: [bakery, donut_shop, breakfast_restaurant, sandwich_shop, convenience_store]
   context_types:  [restaurant, bar, meal_takeaway]
 
+  # primary -> `includedPrimaryTypes`, matching only a place's single primary
+  # type. any -> `includedTypes`, matching primary OR secondary types, which is
+  # wider recall and more noise.
+  # Untested on this vertical. Coffee shops rarely carry `cafe` as a secondary
+  # tag on some other business, so contamination should be lower than for
+  # laundry -- but verify before trusting it.
+  type_filter_mode: primary
+
 substitution:
   # Priors seed the classifier. The model may override any prior, but an override
   # must carry a reason and is written to the run log (see reasoning/classify.py).

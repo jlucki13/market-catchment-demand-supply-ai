@@ -89,11 +89,38 @@ TRANSIENT_FIELDS = (
 InsightType = Literal["INSIGHT_COUNT", "INSIGHT_PLACES"]
 
 
+#: `includedTypes` matches a place's primary OR secondary types;
+#: `includedPrimaryTypes` matches only the primary. Measured on a live Denver
+#: laundromat catchment, the narrower filter cut 33 results to 21 and dropped
+#: zero genuine laundromats -- the 12 it removed were carpet cleaners,
+#: janitorial firms, commercial services, and two dry cleaners carrying
+#: `laundry` as a secondary tag.
+#:
+#: Effect on the Supply Index against a hand-classified ground truth:
+#:
+#:     includedTypes        + priors           3.26x overstated
+#:     includedPrimaryTypes + priors           1.96x overstated
+#:     includedTypes        + classification   1.00x  (baseline)
+#:     includedPrimaryTypes + classification   0.96x
+#:
+#: So `primary` is the default: it costs 4% understatement from the two dropped
+#: dry cleaners and saves 36% of Place Details calls, which is the binding
+#: free-tier constraint. It is NOT a substitute for classification -- five false
+#: positives survived into the kept set of 21, including the most-reviewed
+#: business in the catchment.
+#:
+#: Set `type_filter_mode: any` in a vertical config where recall matters more
+#: than cost, or where a category's businesses commonly carry the relevant type
+#: as a secondary tag.
+DEFAULT_TYPE_FILTER_MODE = "primary"
+
+
 def census_catchment(
     polygon_ring: list[list[float]],
     included_types: list[str],
     *,
     api_key: str,
+    type_filter_mode: str = DEFAULT_TYPE_FILTER_MODE,
     operating_status: tuple[str, ...] = ("OPERATING_STATUS_OPERATIONAL",),
 ) -> dict:
     """Count and, where possible, name every matching place inside the polygon.
@@ -101,20 +128,29 @@ def census_catchment(
     Returns {"count": int, "place_ids": list[str], "complete": bool} where
     `complete` is False when count > MAX_NAMED_PLACES.
 
-    Request shape:
+    Request shape (verified against the live API):
         {
           "insights": ["INSIGHT_COUNT", "INSIGHT_PLACES"],
           "filter": {
             "locationFilter": {"customArea": {"polygon": {"coordinates": [...]}}},
-            "typeFilter": {"includedTypes": [...]},
-            "operatingStatus": [...]
+            "typeFilter": {"includedPrimaryTypes": [...]},
+            "operatingStatus": ["OPERATING_STATUS_OPERATIONAL"]
           }
         }
 
+    Note the polygon takes Google LatLng objects -- {"latitude": .., "longitude": ..}
+    -- not GeoJSON [lng, lat] pairs. Swapping them yields a valid-looking request
+    describing a polygon in the wrong hemisphere, which returns zero results
+    rather than an error.
+
+    `type_filter_mode` selects `includedPrimaryTypes` (default) or
+    `includedTypes`; see DEFAULT_TYPE_FILTER_MODE for the measurement behind it.
+
     The polygon ring must close (first coordinate equals last) and hold at least
-    3 unique coordinates. Mapbox contours can carry hundreds of vertices; if the
-    request is rejected for size, simplify with Douglas-Peucker and record the
-    tolerance used, because simplification changes the area being measured.
+    3 unique coordinates. A 432-vertex Mapbox contour was accepted as-is against
+    the live API, so simplification is a fallback rather than a normal step -- if
+    a request is ever rejected for size, use catchment.simplify_ring and record
+    the tolerance, because simplification changes the area being measured.
     """
     raise NotImplementedError
 

@@ -58,12 +58,19 @@ in the whole system, already barred from being a headline flag on its own. It is
 also the field that drops your free allowance by 5×. Paying the highest tier for
 the least reliable signal is a bad trade.
 
-> **Unverified:** whether `rating` and `userRatingCount` bill as Pro or
+> **Still unverified:** whether `rating` and `userRatingCount` bill as Pro or
 > Enterprise. Sources conflict and `developers.google.com` was unreachable from
-> the build environment, so the table above spans both. **The probe settles
-> it** — run it, then read the Cloud console billing report filtered to the last
-> hour and see which SKU fired. That single check turns the range above into a
-> number.
+> the build environment.
+>
+> Billing reports cannot settle it at low volume — 99 Place Details calls billed
+> $0.00, which is consistent with both tiers (2% of a Pro allowance, 10% of an
+> Enterprise one). The place to look is **Google Maps Platform → Quotas**, which
+> shows consumption against each named allowance, or **Metrics** with Granularity
+> set to *Per Day* and *Grouped by → SKU* if that grouping is offered.
+>
+> Not worth chasing until a batch run makes it matter. With primary-type
+> filtering the range is now 26–130 deals/month, and either end is comfortable
+> for a pipeline.
 
 ## Running with no model at all
 
@@ -120,6 +127,33 @@ So on a category like this, `--no-llm` is not a cheaper version of the analysis;
 it is a different and misleading one. Use it to validate plumbing. For a real
 deal read, classification at roughly $0.35 is the cheapest high-value spend in
 the whole pipeline.
+
+### Primary-type filtering cuts Details calls 36%
+
+Place Details is the only call that scales with competitor count, so it is the
+binding free-tier constraint. Switching the census from `includedTypes` (primary
+**or** secondary types) to `includedPrimaryTypes` (primary only) cut the same
+Denver catchment from 33 places to 21 — and dropped **zero** genuine
+laundromats. What it removed was carpet cleaners, janitorial firms, commercial
+services, and two dry cleaners carrying `laundry` as a secondary tag.
+
+Supply Index against a hand-classified ground truth:
+
+| | Supply Index | vs truth |
+|---|---|---|
+| `includedTypes` + priors | 22.0 | 3.26× |
+| `includedPrimaryTypes` + priors | 13.2 | 1.96× |
+| `includedTypes` + classification | 6.8 | 1.00× |
+| **`includedPrimaryTypes` + classification** | **6.5** | **0.96×** |
+
+`primary` is now the default. It costs 4% understatement from the two dropped
+dry cleaners, and buys 36% fewer Place Details calls — roughly **130 deals a
+month instead of 83**, or 26 instead of 16, depending on the SKU tier.
+
+It is **not** a substitute for classification. Five false positives survived
+into the kept 21, including MSS Cleaning — still the most-reviewed business in
+the catchment, still a commercial cleaner. Primary-type filtering halves the
+error; only classification closes it.
 
 ## What the paid stages actually cost
 

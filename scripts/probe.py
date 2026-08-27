@@ -348,12 +348,12 @@ def details(place_ids: list[str], api_key: str, limit: int) -> list[dict]:
 
     loudest = max(out, key=lambda d: d.get("user_rating_count") or 0)
     if loudest["triage"] != "laundromat":
-        article = "an" if loudest["triage"][0] in "aeiou" else "a"
+        reads = ("does not read as a laundromat" if loudest["triage"] == "unclear"
+                 else f"reads as a {loudest['triage']}")
         print(f"\n  Note: the most-reviewed business here "
               f"({loudest['name']}, {loudest['user_rating_count']} reviews)")
-        print(f"  reads as {article} {loudest['triage']}. Entrenchment would rank "
-              f"it the strongest")
-        print(f"  competitor in the market.")
+        print(f"  {reads}. Entrenchment would rank it the strongest competitor "
+              f"in the market.")
     return out
 
 

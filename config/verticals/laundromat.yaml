@@ -27,6 +27,14 @@ places:
   adjacent_types: []
   context_types:  [convenience_store, storage]
 
+  # primary -> `includedPrimaryTypes`, matching only a place's single primary
+  # type. any -> `includedTypes`, matching primary OR secondary types, which is
+  # wider recall and more noise.
+  # Measured on a live Denver catchment: primary-type filtering cut 33 results
+  # to 21 and dropped zero genuine laundromats. Essential here, because the
+  # `laundry` bucket is heavily contaminated by commercial cleaning firms.
+  type_filter_mode: primary
+
 substitution:
   priors:
     laundry: direct
