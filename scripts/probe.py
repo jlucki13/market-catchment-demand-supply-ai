@@ -185,11 +185,12 @@ def aggregate(ring: list, types: list[str], api_key: str) -> dict | None:
             # lands in a laundromat census. `includedPrimaryTypes` matches only
             # the single primary type. One extra call says how much precision
             # that buys on this market.
+            strict_ids: list[str] | None = None
             strict = requests.post(
                 AGGREGATE_URL,
                 headers={"X-Goog-Api-Key": api_key, "Content-Type": "application/json"},
                 json={
-                    "insights": ["INSIGHT_COUNT"],
+                    "insights": ["INSIGHT_COUNT", "INSIGHT_PLACES"],
                     "filter": {
                         "locationFilter": {"customArea": {"polygon": to_google_polygon(candidate)}},
                         "typeFilter": {"includedPrimaryTypes": types},
@@ -199,25 +200,29 @@ def aggregate(ring: list, types: list[str], api_key: str) -> dict | None:
                 timeout=TIMEOUT,
             )
             if strict.status_code == 200:
-                strict_count = int(strict.json().get("count", 0))
+                body = strict.json()
+                strict_count = int(body.get("count", 0))
+                strict_ids = [
+                    p.get("place", "").split("/")[-1]
+                    for p in (body.get("placeInsights", []) or [])
+                ]
                 print(f"\n  Same polygon with includedPrimaryTypes: "
                       f"count={strict_count} (vs {count} with includedTypes)")
                 if strict_count < count:
-                    print(f"  -> Primary-type filtering drops "
-                          f"{count - strict_count} places. Those carry `laundry` "
-                          f"as a")
-                    print(f"     secondary tag only, which is how commercial "
-                          f"cleaners get into a")
-                    print(f"     laundromat census. Cheap precision if the "
-                          f"dropped ones are noise.")
+                    print(f"  -> Drops {count - strict_count} places that carry "
+                          f"`laundry` only as a secondary tag.")
+                    print(f"     Whether that is precision or lost coverage "
+                          f"depends on WHICH ones;")
+                    print(f"     see the comparison after enrichment.")
                 else:
-                    print(f"  -> No reduction. The contamination is in primary "
-                          f"types, so only the")
-                    print(f"     classification stage can remove it.")
+                    print(f"  -> No reduction. The contamination sits in primary "
+                          f"types, so only")
+                    print(f"     classification can remove it.")
             else:
                 fail(strict, "includedPrimaryTypes comparison")
 
             return {
+                "strict_ids": strict_ids,
                 "count": count,
                 "places": places,
                 "tolerance_km": tolerance,
@@ -343,12 +348,56 @@ def details(place_ids: list[str], api_key: str, limit: int) -> list[dict]:
 
     loudest = max(out, key=lambda d: d.get("user_rating_count") or 0)
     if loudest["triage"] != "laundromat":
+        article = "an" if loudest["triage"][0] in "aeiou" else "a"
         print(f"\n  Note: the most-reviewed business here "
               f"({loudest['name']}, {loudest['user_rating_count']} reviews)")
-        print(f"  is a {loudest['triage']}. Entrenchment would rank it the "
-              f"strongest competitor in")
-        print(f"  the market. It does not compete at all.")
+        print(f"  reads as {article} {loudest['triage']}. Entrenchment would rank "
+              f"it the strongest")
+        print(f"  competitor in the market.")
     return out
+
+
+def compare_type_filters(enriched: list[dict], strict_ids: list[str]) -> None:
+    """Show WHICH records primary-type filtering removes, bucketed by triage.
+
+    The count alone cannot say whether the narrower filter buys precision or
+    loses real competitors. Dropping carpet cleaners is a win; dropping a
+    laundromat is a silent understatement of supply, which is the direction of
+    error that loses money.
+    """
+    hr("6. includedTypes vs includedPrimaryTypes -- what changed")
+    kept = [e for e in enriched if e["place_id"] in set(strict_ids)]
+    dropped = [e for e in enriched if e["place_id"] not in set(strict_ids)]
+
+    from collections import Counter
+    print(f"  Dropped by primary-type filtering ({len(dropped)}):")
+    for e in sorted(dropped, key=lambda x: x["triage"]):
+        print(f"    {e['triage']:<18} {e['name'][:44]}")
+
+    lost = [e for e in dropped if e["triage"] == "laundromat"]
+    noise = [e for e in dropped if e["triage"] in ("not-a-competitor", "unclear")]
+
+    print(f"\n  Of the {len(dropped)} dropped: {len(noise)} were noise or "
+          f"unclear, {len(lost)} looked like")
+    print(f"  genuine laundromats.")
+    print(f"  Kept set of {len(kept)}: " +
+          ", ".join(f"{n} {t}" for t, n in Counter(e["triage"] for e in kept).most_common()))
+
+    if lost:
+        print(f"\n  Primary-type filtering would DROP {len(lost)} real "
+              f"laundromat(s):")
+        for e in lost:
+            print(f"    {e['name']}")
+        print(f"  That understates supply, which is the expensive direction of "
+              f"error. Prefer")
+        print(f"  the wider filter and let classification remove the noise.")
+    else:
+        print(f"\n  No genuine laundromat was dropped. Primary-type filtering "
+              f"is free precision")
+        print(f"  here: it removes {len(noise)} records that classification "
+              f"would have had to")
+        print(f"  reject anyway, at {len(dropped)} fewer Place Details calls "
+              f"per deal.")
 
 
 def route_matrix(origin: dict, enriched: list[dict], api_key: str) -> None:
@@ -711,6 +760,8 @@ def main() -> int:
         enriched = details(place_ids, google_key, args.details)
         if enriched:
             route_matrix(origin, enriched, google_key)
+            if result.get("strict_ids") is not None:
+                compare_type_filters(enriched, result["strict_ids"])
 
     hr("VERDICT")
     print(f"Q1  Polygon accepted at tolerance {result['tolerance_km']} km "
