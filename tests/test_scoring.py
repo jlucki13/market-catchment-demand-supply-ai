@@ -515,6 +515,44 @@ def test_provenance_allows_years_and_small_counts():
     assert verify(_findings(memo), SCORECARD, strict=False) == []
 
 
+# --- vertical config integrity ----------------------------------------------
+
+
+@pytest.mark.parametrize("vertical_id", ["coffee_shop", "laundromat", "fitness_studio"])
+def test_every_listed_place_type_has_a_prior(vertical_id):
+    """A type pulled from Google but absent from the priors scores as `none`.
+
+    That is a silent understatement of supply, so the two lists must not drift
+    apart. This is the offline half of the check; the live half is
+    `probe.py --validate-types`, which asks Google whether the types exist.
+    """
+    vertical = load_vertical(vertical_id)
+    places = vertical["places"]
+    listed = set(
+        places.get("direct_types", [])
+        + places.get("adjacent_types", [])
+        + places.get("context_types", [])
+    )
+    priors = set((vertical["substitution"]["priors"] or {}).keys())
+    assert listed - priors == set(), (
+        f"{vertical_id}: types fetched but with no prior: {sorted(listed - priors)}"
+    )
+    assert priors - listed == set(), (
+        f"{vertical_id}: priors for types never fetched: {sorted(priors - listed)}"
+    )
+
+
+def test_laundromat_does_not_reference_the_rejected_dry_cleaner_type():
+    """Regression: the live API rejects `dry_cleaner` as a filterable type."""
+    vertical = load_vertical("laundromat")
+    all_types = (
+        vertical["places"]["direct_types"]
+        + vertical["places"]["adjacent_types"]
+        + vertical["places"]["context_types"]
+    )
+    assert "dry_cleaner" not in all_types
+
+
 # --- zero-cost path ---------------------------------------------------------
 
 
@@ -543,12 +581,37 @@ def test_priors_classification_is_always_low_confidence():
     vertical = load_vertical("laundromat")
     competitors = [
         {"place_id": "a", "primary_type": "laundry", "types": ["laundry"]},
-        {"place_id": "b", "primary_type": "dry_cleaner", "types": ["dry_cleaner"]},
+        {"place_id": "b", "primary_type": "convenience_store", "types": ["convenience_store"]},
     ]
     result = classify_from_priors(competitors, vertical)
-    assert [c["substitutability"] for c in result["classifications"]] == ["direct", "adjacent"]
+    assert [c["substitutability"] for c in result["classifications"]] == ["direct", "none"]
     assert all(c["confidence"] == "low" for c in result["classifications"])
     assert any("category-level" in c for c in result["coverage_concerns"])
+
+
+def test_priors_cannot_separate_businesses_google_files_together():
+    """The concrete cost of the zero-cost path, pinned as a test.
+
+    Google has no dry-cleaner type: both a coin laundromat and a drop-off dry
+    cleaner arrive typed `laundry`. Priors see one label and score both as
+    direct competitors, overstating supply. Only a classifier reading the name
+    can tell them apart, and this asserts the gap rather than papering over it.
+    """
+    vertical = load_vertical("laundromat")
+    competitors = [
+        {"place_id": "a", "name": "24hr Coin Laundry", "primary_type": "laundry",
+         "types": ["laundry"]},
+        {"place_id": "b", "name": "Elite Dry Cleaning", "primary_type": "laundry",
+         "types": ["laundry"]},
+    ]
+    levels = [
+        c["substitutability"]
+        for c in classify_from_priors(competitors, vertical)["classifications"]
+    ]
+    assert levels == ["direct", "direct"], (
+        "priors score both as direct; the dry cleaner is a false positive that "
+        "a model would catch from the name"
+    )
 
 
 def test_unknown_place_type_is_reported_not_hidden():

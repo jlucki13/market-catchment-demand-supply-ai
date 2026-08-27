@@ -19,6 +19,8 @@ places:
   # `context_types` are pulled but expected to score as non-substitutes; they are
   # included so the classifier sees real retail context instead of a pre-filtered
   # view that already assumes the answer.
+  # Verify any change with:
+  #   python scripts/probe.py --validate-types --vertical coffee_shop
   direct_types:   [coffee_shop, cafe]
   adjacent_types: [bakery, donut_shop, breakfast_restaurant, sandwich_shop, convenience_store]
   context_types:  [restaurant, bar, meal_takeaway]

@@ -175,9 +175,9 @@
       "lat": 40.7436,
       "lng": -73.9201
     },
-    "primary_type": "dry_cleaner",
+    "primary_type": "laundry",
     "types": [
-      "dry_cleaner"
+      "laundry"
     ],
     "rating": 4.6,
     "user_rating_count": 89,
@@ -189,7 +189,7 @@
     "detour_ratio": 1.46,
     "substitutability": "adjacent",
     "classifier_confidence": "high",
-    "substitutability_reason": "seeded fixture",
+    "substitutability_reason": "Name indicates a drop-off dry cleaner, not self-service. Google types it `laundry` like the laundromats; only the name separates them.",
     "overrode_prior": false,
     "chain_group": null,
     "earliest_review_at": null,
@@ -203,9 +203,9 @@
       "lat": 40.7401,
       "lng": -73.9155
     },
-    "primary_type": "dry_cleaner",
+    "primary_type": "laundry",
     "types": [
-      "dry_cleaner"
+      "laundry"
     ],
     "rating": 4.2,
     "user_rating_count": 41,
@@ -217,7 +217,7 @@
     "detour_ratio": 1.27,
     "substitutability": "adjacent",
     "classifier_confidence": "high",
-    "substitutability_reason": "seeded fixture",
+    "substitutability_reason": "Name indicates a drop-off dry cleaner, not self-service. Google types it `laundry` like the laundromats; only the name separates them.",
     "overrode_prior": false,
     "chain_group": null,
     "earliest_review_at": null,

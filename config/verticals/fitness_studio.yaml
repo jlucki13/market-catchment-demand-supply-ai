@@ -11,6 +11,12 @@ catchment:
   profile: driving
 
 places:
+  # Google's type filter is hierarchical -- filtering on `gym` already returns
+  # its subtypes, `yoga_studio` among them. The child types are listed anyway so
+  # the substitution priors below can score them differently once they come
+  # back, but they add no coverage on their own.
+  #
+  # Verify with:  python scripts/probe.py --validate-types --vertical fitness_studio
   direct_types:   [gym, fitness_center]
   adjacent_types: [yoga_studio, sports_club, sports_complex, swimming_pool]
   context_types:  [physiotherapist, spa, park]

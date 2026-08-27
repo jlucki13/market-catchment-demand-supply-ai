@@ -186,10 +186,17 @@ def aggregate(ring: list, types: list[str], api_key: str) -> dict | None:
             }
 
         fail(r, label)
-        if r.status_code not in (400, 413):
-            print("  Not a size error -- stopping rather than escalating tolerance.")
+        if not is_size_error(r.status_code, r.text):
+            print("\n  This is not a size rejection, so simplifying the polygon "
+                  "would not help.")
+            if "type is not supported" in r.text.lower():
+                bad = r.text.split("type:")[-1].split('"')[0].strip().rstrip(",}")
+                print(f"  Google does not accept '{bad}' as a filterable place type.")
+                print(f"  Remove it from config/verticals/, or run:")
+                print(f"      python scripts/probe.py --validate-types "
+                      f"--vertical <name>")
             return None
-        print("  Looks like a size limit. Escalating simplification.")
+        print("  Size rejection confirmed. Escalating simplification.")
 
     print("\n  Rejected at every tolerance. Record the error body above -- that is the finding.")
     return None
@@ -221,6 +228,27 @@ def details(place_ids: list[str], api_key: str, limit: int) -> None:
 
 
 CENSUS_TEST_URL = "https://api.census.gov/data/2023/acs/acs5"
+
+
+#: Substrings that mark a genuine polygon-size rejection. Anything else that
+#: comes back 400 is a different problem and must not trigger simplification --
+#: retrying a bad request with worse geometry just burns free-tier calls.
+SIZE_ERROR_MARKERS = (
+    "too large", "too many", "vertices", "exceeds", "payload", "request size",
+    "too complex", "limit",
+)
+
+
+def is_size_error(status_code: int, body: str) -> bool:
+    """Is this rejection actually about the polygon being too big?"""
+    if status_code == 413:
+        return True
+    if status_code != 400:
+        return False
+    low = body.lower()
+    if "type is not supported" in low or "invalid_argument" in low and "type" in low:
+        return False
+    return any(marker in low for marker in SIZE_ERROR_MARKERS)
 
 
 def google_hint(status: str, message: str) -> str:
@@ -343,10 +371,85 @@ def check_keys() -> int:
     return 0
 
 
+def validate_types(vertical: dict, api_key: str) -> int:
+    """Ask the API which of a vertical's place types it will actually accept.
+
+    Google's Table A is the authority on filterable types and it does not match
+    intuition -- `dry_cleaner` reads like a type and is not one. Rather than
+    guess, submit the whole list and let the API name what it rejects; each
+    rejection names exactly one type, so drop it and resubmit until the request
+    is clean. Best case one call, worst case one per bad type, all inside the
+    free tier.
+
+    Uses a deliberately tiny area: this asks whether the FILTER is valid, not
+    what is in any particular place.
+    """
+    hr(f"Validate place types -- {vertical['label']}")
+    places = vertical["places"]
+    candidates = list(dict.fromkeys(
+        places.get("direct_types", []) + places.get("adjacent_types", [])
+        + places.get("context_types", [])
+    ))
+    print(f"  Submitting {len(candidates)} types: {', '.join(candidates)}\n")
+
+    # ~500m box near the Denver origin. Small enough to be trivial, large enough
+    # to clear the API's 1,556 m2 minimum area.
+    tiny = [[-105.045, 39.740], [-105.039, 39.740],
+            [-105.039, 39.745], [-105.045, 39.745], [-105.045, 39.740]]
+
+    rejected: list[str] = []
+    remaining = list(candidates)
+    for _ in range(len(candidates) + 1):
+        if not remaining:
+            break
+        r = requests.post(
+            AGGREGATE_URL,
+            headers={"X-Goog-Api-Key": api_key, "Content-Type": "application/json"},
+            json={
+                "insights": ["INSIGHT_COUNT"],
+                "filter": {
+                    "locationFilter": {"customArea": {"polygon": to_google_polygon(tiny)}},
+                    "typeFilter": {"includedTypes": remaining},
+                },
+            },
+            timeout=TIMEOUT,
+        )
+        if r.status_code == 200:
+            break
+        if "type is not supported" not in r.text.lower():
+            fail(r, "type validation")
+            return 1
+        bad = r.text.split("type:")[-1].split('"')[0].strip().rstrip(",}")
+        if bad not in remaining:
+            fail(r, "type validation (could not parse the rejected type)")
+            return 1
+        rejected.append(bad)
+        remaining.remove(bad)
+        print(f"  rejected: {bad}")
+
+    print()
+    for t in candidates:
+        print(f"  {'OK  ' if t in remaining else '!!  '}{t}")
+
+    if rejected:
+        print(f"\n{len(rejected)} type(s) are not filterable: {', '.join(rejected)}")
+        print("Remove them from the vertical config. Note that Google's type")
+        print("hierarchy is implicit: filtering on a parent type already includes")
+        print("its subtypes, so a rejected name is often already covered by one")
+        print("of the accepted ones.")
+        return 1
+
+    print("\nAll types accepted.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("address", nargs="?",
                     help="omit when using --check")
+    ap.add_argument("--validate-types", action="store_true",
+                    help="ask the API which of this vertical's place types it "
+                         "accepts, then exit. One cheap call per bad type.")
     ap.add_argument("--check", action="store_true",
                     help="verify whichever keys are set, then exit. Costs nothing "
                          "beyond three calls inside the free tiers.")
@@ -361,6 +464,13 @@ def main() -> int:
 
     if args.check:
         return check_keys()
+
+    if args.validate_types:
+        key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        if not key:
+            print("GOOGLE_MAPS_API_KEY is not set.")
+            return 2
+        return validate_types(load_vertical(args.vertical), key)
     if not args.address:
         ap.error("an address is required unless you pass --check")
 

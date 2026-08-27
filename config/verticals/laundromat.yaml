@@ -12,24 +12,42 @@ catchment:
   profile: driving
 
 places:
+  # `dry_cleaner` is NOT a filterable Google place type -- the live API rejects
+  # it outright. Google files dry cleaners under `laundry` alongside
+  # self-service laundromats, which makes the classifier's job harder, not
+  # easier: the two businesses arrive in one undifferentiated bucket and have to
+  # be told apart from name, hours, and price level.
+  #
+  # Google's type filter is also hierarchical: filtering on a parent type
+  # already returns its subtypes. Listing both a parent and its child is
+  # redundant rather than additive.
+  #
+  # Verify any change here with:  python scripts/probe.py --validate-types --vertical laundromat
   direct_types:   [laundry]
-  adjacent_types: [dry_cleaner]
+  adjacent_types: []
   context_types:  [convenience_store, storage]
 
 substitution:
   priors:
     laundry: direct
-    dry_cleaner: adjacent
     convenience_store: none
     storage: none
   guidance: >
-    Google's `laundry` type merges self-service laundromats with drop-off dry
-    cleaners, which are different businesses serving different customers. Use the
-    name, price level, and hours to separate them: 24-hour operation and no
-    "cleaners" in the name strongly suggest self-service. A dry cleaner is at most
-    an adjacent substitute for a coin-laundry customer. Wash-and-fold service
-    offered by a laundromat competes with dry cleaners, not the reverse.
-    Card-operated modern stores compete differently from coin-only legacy stores.
+    Google has no separate dry-cleaner type, so `laundry` arrives as one bucket
+    holding both self-service laundromats and drop-off dry cleaners -- different
+    businesses serving different customers. Separating them is the single most
+    valuable judgment you make on this vertical, and it has to come from the
+    name, hours, and price level: 24-hour operation and no "cleaners" or
+    "dry clean" in the name strongly suggest self-service. Score a dry cleaner
+    `adjacent` at most for a coin-laundry customer.
+
+    This is also why the priors-only path (--no-llm) is weak here specifically:
+    it scores every `laundry` as a direct competitor, dry cleaners included, and
+    so overstates supply. Say so when it applies.
+
+    Wash-and-fold offered by a laundromat competes with dry cleaners, not the
+    reverse. Card-operated modern stores compete differently from coin-only
+    legacy ones.
 
 clustering:
   # DBSCAN radius for detecting competitor corridors. Density-sensitive: too

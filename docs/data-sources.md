@@ -32,6 +32,28 @@ Other limits: area must be between 1,556.86 m² and ~2×10¹² m². Polygons nee
 coordinates with the first equal to the last and ≥3 unique. Default rate limit
 1,200 QPM.
 
+### Place types are not what you would guess
+
+`includedTypes` accepts only values from Google's **Table A**, and the set does
+not match intuition. `dry_cleaner` reads like a type and is not one — the live
+API rejects it with `Type is not supported`. Google files dry cleaners under
+`laundry`, in the same bucket as self-service laundromats, which means the two
+arrive undifferentiated and have to be told apart from name, hours, and price.
+
+The filter is also **hierarchical**: filtering on a parent type already returns
+its subtypes, so requesting both `gym` and `yoga_studio` is redundant rather
+than additive.
+
+Do not guess at this taxonomy — ask the API:
+
+```bash
+python scripts/probe.py --validate-types --vertical laundromat
+```
+
+It submits the vertical's whole type list and, on rejection, drops the type the
+error names and resubmits until the request is clean. Best case one call, worst
+case one per bad type, all inside the free tier.
+
 ### Place Details enrichment
 
 `GET https://places.googleapis.com/v1/places/{place_id}` for the shortlist.
