@@ -602,6 +602,28 @@ def check_keys() -> int:
             message = data.get("error_message", r.text[:200])
             results["Google"] = f"FAILED -- {status}: {message}\n{google_hint(status, message)}"
 
+    # TIGERweb needs no key but is a hard dependency of the demand half, and it
+    # is the one service that can be reachable while still refusing a query.
+    try:
+        from mcds.demand.census import TIGERWEB_SERVICES, block_groups_intersecting
+
+        denver_box = [
+            [-105.06, 39.72], [-105.02, 39.72],
+            [-105.02, 39.76], [-105.06, 39.76], [-105.06, 39.72],
+        ]
+        groups = block_groups_intersecting(denver_box)
+        results["TIGERweb"] = (
+            f"OK -- {len(groups)} block groups returned for a Denver test box"
+        )
+    except Exception as exc:  # noqa: BLE001 - reporting, not handling
+        results["TIGERweb"] = (
+            f"FAILED -- {str(exc)[:220]}\n"
+            f"      -> No key involved. If every service in "
+            f"{len(TIGERWEB_SERVICES)} candidates failed, the Census map service\n"
+            f"         may be down or renamed; check "
+            f"tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb"
+        )
+
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
         results["Anthropic"] = "not set"
@@ -641,7 +663,7 @@ def check_keys() -> int:
 
     for service, outcome in results.items():
         marker = {"OK": "  OK ", "no": "  -- ", "FA": "  !! "}[outcome[:2]]
-        print(f"{marker}{service:<8} {outcome}")
+        print(f"{marker}{service:<10} {outcome}")
 
     unset = [s for s, o in results.items() if o == "not set"]
     failed = [s for s, o in results.items() if o.startswith("FAILED")]

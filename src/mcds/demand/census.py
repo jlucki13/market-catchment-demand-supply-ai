@@ -33,12 +33,19 @@ from ..moe import Estimate, sum_estimates
 
 TIGERWEB_URL = (
     "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/"
-    "tigerWMS_ACS{vintage}/MapServer/{layer}/query"
+    "{service}/MapServer/{layer}/query"
 )
 CENSUS_API_URL = "https://api.census.gov/data/{vintage}/{dataset}"
 
 #: TIGERweb layer id for block groups in the ACS map services.
 BLOCK_GROUP_LAYER = 8
+
+#: Map service names, newest first. The ACS-vintage services lag the data
+#: vintage and are retired over time, so a fixed name breaks silently a year
+#: later. Each is tried in order and the first that answers is used.
+TIGERWEB_SERVICES = (
+    "tigerWMS_ACS2023", "tigerWMS_ACS2022", "tigerWMS_ACS2021", "tigerWMS_Current",
+)
 
 #: The tables each demographic dimension reads from. Every vertical config
 #: references these by name, so a new dimension means one entry here and one
@@ -122,47 +129,86 @@ def block_groups_intersecting(
     Returns [{"geoid", "state", "county", "tract", "block_group", "ring",
               "area_sq_km"}].
 
-    The geometry comes back so interpolate.py can compute what fraction of each
-    block group actually falls inside the catchment. A block group clipped by
-    the isochrone edge must not contribute its whole population.
+    Queried by BOUNDING BOX rather than by the catchment polygon itself. A
+    drive-time contour runs to several hundred vertices, and ArcGIS rejects a
+    query geometry that complex with a bare "Failed to execute query". The
+    envelope is four numbers and always works.
+
+    Nothing is lost by widening the query: interpolate.overlap_fractions clips
+    each block group against the real polygon locally with Sutherland-Hodgman,
+    and anything falling outside it drops out at MIN_OVERLAP_FRACTION. Precision
+    lives in the local clip, not in the remote query.
     """
+    lngs = [p[0] for p in polygon_ring]
+    lats = [p[1] for p in polygon_ring]
     envelope = {
-        "rings": [[[p[0], p[1]] for p in polygon_ring]],
+        "xmin": min(lngs), "ymin": min(lats),
+        "xmax": max(lngs), "ymax": max(lats),
         "spatialReference": {"wkid": 4326},
     }
-    data = post_json(
-        TIGERWEB_URL.format(vintage=vintage, layer=BLOCK_GROUP_LAYER),
-        service="TIGERweb",
-        data={
-            "geometry": json.dumps(envelope),
-            "geometryType": "esriGeometryPolygon",
-            "inSR": "4326",
-            "outSR": "4326",
-            "spatialRel": "esriSpatialRelIntersects",
-            "outFields": "GEOID,STATE,COUNTY,TRACT,BLKGRP",
-            "returnGeometry": "true",
-            "f": "json",
-        },
-    )
-    if "error" in data:
-        raise ApiError("TIGERweb", 200, json.dumps(data["error"])[:400])
+    payload = {
+        "geometry": json.dumps(envelope),
+        "geometryType": "esriGeometryEnvelope",
+        "inSR": "4326",
+        "outSR": "4326",
+        "spatialRel": "esriSpatialRelIntersects",
+        "outFields": "*",
+        "returnGeometry": "true",
+        "f": "json",
+    }
 
+    services = list(TIGERWEB_SERVICES)
+    preferred = f"tigerWMS_ACS{vintage}"
+    if preferred in services:
+        services.remove(preferred)
+    services.insert(0, preferred)
+
+    failures: list[str] = []
+    for service in services:
+        url = TIGERWEB_URL.format(service=service, layer=BLOCK_GROUP_LAYER)
+        try:
+            data = post_json(url, service="TIGERweb", data=payload)
+        except ApiError as exc:
+            failures.append(f"{service}: HTTP {exc.status}")
+            continue
+        if "error" in data:
+            detail = data["error"].get("message", "")
+            failures.append(f"{service}: {detail}")
+            continue
+        features = data.get("features") or []
+        if features:
+            return _parse_block_groups(features)
+        failures.append(f"{service}: returned no block groups for this area")
+
+    raise ApiError(
+        "TIGERweb", 200,
+        "No TIGERweb map service answered for this catchment. Tried "
+        + "; ".join(failures)
+        + ". If every service reports no block groups, check that the catchment "
+        "is inside the United States and that coordinates were not swapped "
+        "upstream (GeoJSON is lng-first).",
+    )
+
+
+def _parse_block_groups(features: list[dict]) -> list[dict]:
+    """Turn Esri features into the block-group records interpolate.py expects."""
     out: list[dict] = []
-    for feature in data.get("features", []):
-        attrs = feature.get("attributes", {})
+    for feature in features:
+        attrs = feature.get("attributes") or {}
         rings = (feature.get("geometry") or {}).get("rings") or []
-        if not rings:
+        geoid = attrs.get("GEOID")
+        if not rings or not geoid:
             continue
         # Esri rings are [x, y] = [lng, lat], the same order as GeoJSON.
         ring = [[float(x), float(y)] for x, y in max(rings, key=len)]
         if ring[0] != ring[-1]:
             ring.append(ring[0])
         out.append({
-            "geoid": attrs.get("GEOID"),
-            "state": attrs.get("STATE"),
-            "county": attrs.get("COUNTY"),
-            "tract": attrs.get("TRACT"),
-            "block_group": attrs.get("BLKGRP"),
+            "geoid": str(geoid),
+            "state": str(attrs.get("STATE") or geoid[:2]),
+            "county": str(attrs.get("COUNTY") or geoid[2:5]),
+            "tract": str(attrs.get("TRACT") or geoid[5:11]),
+            "block_group": str(attrs.get("BLKGRP") or geoid[11:]),
             "ring": ring,
         })
     return out
