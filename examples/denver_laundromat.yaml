@@ -1,0 +1,70 @@
+# A synthetic deal at a real Denver address, for exercising the live pipeline.
+#
+#   mcds examples/denver_laundromat.yaml --no-llm     # live data, $0
+#   mcds examples/denver_laundromat.yaml --out out/   # full analysis, ~$2.40
+#
+# The ADDRESS is real, so the catchment, competitors, demographics and drive
+# times are all real. Everything below the address -- the business, the price,
+# the earnings, the seller's claims -- is INVENTED to exercise the claim
+# reconciliation paths. Do not read any output about this "deal" as being about
+# an actual listed business.
+deal_id: DENVER-LAUNDRY-DEMO
+label: West Colfax Coin Laundry (synthetic)
+address: 4032 W 17th Ave, Denver, CO 80204
+vertical: laundromat
+catchment_minutes: 10
+
+asking_price: 395000
+reported_sde: 118000
+
+seller_claims:
+  claims:
+    # Tests competitor_count: the probe found 9 direct substitutes here, so this
+    # should come back contradicted -- the single sharpest output in the memo.
+    - claim_id: C1
+      kind: competitor_count
+      verbatim: "There are only two other laundromats in the immediate area."
+      source: "Invented for testing"
+      parsed:
+        competitor_count: 2
+
+    # Tests the implied-capture-rate inversion.
+    - claim_id: C2
+      kind: customer_volume
+      verbatim: "We serve about 1,100 customers a week."
+      source: "Invented for testing"
+      parsed:
+        customers_per_period: 1100
+        period: week
+
+    # Tests catchment_extent. A 3-mile radius claim against a 10-minute
+    # drive-time catchment is exactly the mismatch this tool exists to surface,
+    # and the Denver detour ratios show why a radius overstates reach.
+    - claim_id: C3
+      kind: catchment_extent
+      verbatim: "Our customers come from a three-mile radius."
+      source: "Invented for testing"
+      parsed:
+        radius_miles: 3
+
+    # Tests income-band reconciliation against the real ACS distribution.
+    - claim_id: C4
+      kind: customer_income
+      verbatim: "Our typical customer is a household earning under $50,000."
+      source: "Invented for testing"
+      parsed:
+        income_min: null
+        income_max: 50000
+
+    # Deliberately untestable: no field in this analysis bears on it. The memo
+    # must say so rather than let a reader assume it was checked.
+    - claim_id: C5
+      kind: other
+      verbatim: "Most of our machines were replaced in 2021."
+      source: "Invented for testing"
+      parsed: {}
+
+notes: >
+  Synthetic deal for validating the live pipeline against a real market. The
+  claims are constructed to exercise each reconciliation path, including one
+  that cannot be tested at all.
