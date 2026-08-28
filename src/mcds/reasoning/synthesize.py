@@ -23,7 +23,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .client import RoutingConfig, build_request, cached_system, check_refusal, get_client
+from ..provenance import ProvenanceError, verify
+from .client import RoutingConfig, cached_system, call_structured
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "findings.schema.json"
 
@@ -123,16 +124,50 @@ def synthesize(
     routing: RoutingConfig,
     *,
     api_key: str | None = None,
-) -> dict:
+    max_repairs: int = 1,
+) -> tuple[dict, list[str]]:
     """Produce findings conforming to schemas/findings.schema.json.
 
-    Streams, because effort xhigh on a full deal payload runs long enough to hit
-    a non-streaming HTTP timeout. Use the SDK's get_final_message() rather than
-    assembling events by hand.
-
-    Check stop_reason for 'refusal' before reading content, then run
-    provenance.verify() against the scorecard. Do not render on a violation --
-    re-prompt with the specific violations, which is a cheap correction, and only
-    fail the run if it recurs.
+    Runs the provenance check before returning and, on violation, re-prompts
+    once with the specific violations quoted. A repair round is far cheaper than
+    failing a deal run, and the failure mode being repaired -- a figure with no
+    computed origin -- is exactly the one a reader cannot detect unaided.
     """
-    raise NotImplementedError
+    system, user = build_prompt(
+        scorecard, competitors, demographics, seller_claims, vertical
+    )
+    schema = load_schema()
+    warnings: list[str] = []
+
+    for attempt in range(max_repairs + 1):
+        findings = call_structured(
+            "synthesize", routing, system=system, user=user,
+            schema=schema, api_key=api_key, stream=True,
+        )
+        violations = verify(findings, scorecard, strict=False)
+        if not violations:
+            if attempt:
+                warnings.append(
+                    "The first synthesis draft cited figures with no computed "
+                    "origin and was rejected; the memo here is a corrected "
+                    "second pass."
+                )
+            return findings, warnings
+
+        if attempt == max_repairs:
+            detail = "; ".join(f"{v.kind}: {v.detail}" for v in violations[:5])
+            raise ProvenanceError(
+                f"Synthesis still cited unverifiable figures after "
+                f"{max_repairs} repair attempt(s): {detail}"
+            )
+
+        user += (
+            "\n\nYour previous response was rejected by the provenance check. "
+            "Each item below is a figure or citation with no computed origin in "
+            "the scorecard. Rewrite the findings using only values that appear "
+            "in the scorecard, cited by dotted path. Where a number you wanted "
+            "does not exist, say what is missing instead of supplying it.\n\n"
+            + "\n".join(f"- [{v.kind}] {v.detail}" for v in violations)
+        )
+
+    raise ProvenanceError("unreachable")

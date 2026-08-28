@@ -41,24 +41,146 @@ def extract_claims(
     api_key: str | None = None,
 ) -> dict:
     """v2: pull claims from CIM text into schemas/seller_claims.schema.json shape."""
-    raise NotImplementedError
+    raise NotImplementedError(
+        "CIM extraction is a v2 item. v1 takes claims as structured input; see "
+        "examples/sample_deal.yaml."
+    )
+
+
+#: A claimed capture rate above this share of qualified households is not
+#: impossible, but it is a question for management rather than an assumption.
+IMPLAUSIBLE_CAPTURE_RATE = 0.35
+
+#: Visits per household per period, used to turn a claimed customer count into
+#: an implied household count. Deliberately generous -- the point is to catch
+#: claims that fail even under favourable assumptions.
+VISITS_PER_HOUSEHOLD = {"day": 0.15, "week": 1.0, "month": 4.0, "year": 50.0}
 
 
 def reconcile(claims: dict, scorecard: dict, demographics: dict) -> list[dict]:
-    """Deterministic pre-computation of what each claim should be tested against.
+    """Pre-compute what each claim should be tested against.
 
     Runs BEFORE synthesis and in code, not in a model: mapping a claim of kind
     `customer_income` to the income distribution and computing the share of the
-    catchment inside the claimed band is arithmetic, and arithmetic belongs here.
-    The model's job is deciding what the gap means, not measuring it.
-
-    Includes the implied-capture-rate inversion for volume claims:
-
-        implied_capture_rate = claimed_customers_per_period
-                               / qualified_households_in_catchment
-
-    A claimed volume needing 40% of every qualified household in the catchment to
-    be a regular customer is not impossible, but it is a question for management,
-    and it is invisible until the two numbers are put side by side.
+    catchment inside the claimed band is arithmetic, and arithmetic belongs
+    here. The model's job is deciding what the gap means, not measuring it.
     """
-    raise NotImplementedError
+    from ..moe import Estimate
+    from ..scoring.indices import band_share
+
+    results: list[dict] = []
+    distributions = demographics.get("distributions") or {}
+    qualified = (scorecard.get("demand") or {}).get("qualified_households") or {}
+    households = (scorecard.get("demand") or {}).get("total_households") or {}
+
+    def bands(dimension: str) -> list[dict] | None:
+        raw = distributions.get(dimension)
+        if not raw:
+            return None
+        return [
+            {
+                "band": b["band"], "min": b.get("min"), "max": b.get("max"),
+                "estimate": Estimate(b["estimate"]["value"], b["estimate"].get("moe")),
+            }
+            for b in raw
+        ]
+
+    for claim in claims.get("claims", []) or []:
+        parsed = claim.get("parsed") or {}
+        entry = {
+            "claim_id": claim["claim_id"],
+            "kind": claim["kind"],
+            "verbatim": claim["verbatim"],
+            "computed_actual": None,
+            "tested_against": None,
+            "testable": False,
+            "note": None,
+        }
+
+        if claim["kind"] == "customer_income":
+            income = bands("household_income")
+            if income and (parsed.get("income_min") or parsed.get("income_max")):
+                numerator, denominator, notes = band_share(
+                    income,
+                    minimum=parsed.get("income_min"),
+                    maximum=parsed.get("income_max"),
+                )
+                share = numerator.value / denominator.value if denominator.value else 0.0
+                entry.update({
+                    "computed_actual": round(share, 4),
+                    "tested_against": "demand.filters_applied",
+                    "testable": True,
+                    "note": (
+                        f"Households in the claimed income band are "
+                        f"{share:.1%} of the catchment."
+                        + (" " + " ".join(notes) if notes else "")
+                    ),
+                })
+
+        elif claim["kind"] == "catchment_extent":
+            minutes = (scorecard.get("demand") or {}).get("catchment_minutes")
+            radius = parsed.get("radius_miles")
+            if radius:
+                entry.update({
+                    "computed_actual": radius,
+                    "tested_against": "supply.strongest.0.drive_time_minutes",
+                    "testable": True,
+                    "note": (
+                        f"The seller claims a {radius}-mile radius. Compare "
+                        f"against the drive-time catchment actually analysed: a "
+                        f"radius claim ignores barriers, and the detour ratios "
+                        f"on nearby competitors show how much that matters here."
+                    ),
+                })
+
+        elif claim["kind"] == "customer_volume":
+            count = parsed.get("customers_per_period")
+            period = parsed.get("period")
+            base = qualified.get("value")
+            if count and period and base:
+                visits = VISITS_PER_HOUSEHOLD.get(period, 1.0)
+                implied_households = count / visits
+                rate = implied_households / base if base else None
+                entry.update({
+                    "computed_actual": round(rate, 4) if rate else None,
+                    "tested_against": "demand.qualified_households.value",
+                    "testable": True,
+                    "note": (
+                        f"{count:,.0f} customers per {period} implies roughly "
+                        f"{implied_households:,.0f} households, or {rate:.1%} of "
+                        f"the {base:,.0f} qualified households in the catchment."
+                        + (
+                            " That capture rate is high enough to be worth "
+                            "asking management about directly."
+                            if rate and rate > IMPLAUSIBLE_CAPTURE_RATE else ""
+                        )
+                    ),
+                })
+
+        elif claim["kind"] == "competitor_count":
+            claimed = parsed.get("competitor_count")
+            by_sub = (scorecard.get("supply") or {}).get("by_substitutability") or {}
+            actual = by_sub.get("direct", 0)
+            if claimed is not None:
+                entry.update({
+                    "computed_actual": actual,
+                    "tested_against": "supply.by_substitutability",
+                    "testable": True,
+                    "note": (
+                        f"The seller says {claimed}. The catchment holds "
+                        f"{actual} direct substitute(s) plus "
+                        f"{by_sub.get('partial', 0)} partial and "
+                        f"{by_sub.get('adjacent', 0)} adjacent."
+                    ),
+                })
+
+        if not entry["testable"]:
+            entry["note"] = (
+                "No field in this analysis bears on this claim. It is recorded "
+                "so the memo can say it was not tested, rather than leaving a "
+                "reader to assume it was."
+            )
+        results.append(entry)
+
+    _ = households  # available for future claim kinds
+    return results

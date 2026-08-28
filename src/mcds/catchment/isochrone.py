@@ -28,7 +28,10 @@ Endpoint:
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from typing import Literal, Sequence
+
+from ..http import ApiError, get_json
 
 Profile = Literal["driving", "driving-traffic", "walking", "cycling"]
 
@@ -53,22 +56,121 @@ def fetch_isochrone(
     profile: Profile = "driving",
     access_token: str,
     denoise: float = DEFAULT_DENOISE,
-) -> dict:
-    """Return a catchment dict conforming to schemas/catchment.schema.json.
+    formatted_address: str | None = None,
+    geocode_quality: str | None = None,
+) -> tuple[dict, list[str]]:
+    """Return (catchment, warnings), the catchment conforming to its schema.
 
-    Raises ValueError when `minutes` exceeds MAX_CONTOUR_MINUTES, rather than
-    letting Mapbox silently return a 60-minute contour for a 90-minute request.
-
-    Implementation notes for the build session:
-      * The response is a FeatureCollection; take the Polygon geometry of the
-        contour whose `contour` property equals `minutes`.
-      * Mapbox occasionally returns a MultiPolygon for fragmented catchments.
-        Keep the largest ring and record the discarded area in a warning; do not
-        silently drop it.
-      * Set `traffic_aware` on the result from whether `profile` is
-        `driving-traffic`. The memo branches on this field.
+    Raises ValueError above MAX_CONTOUR_MINUTES rather than letting Mapbox
+    silently return a 60-minute contour for a 90-minute request.
     """
-    raise NotImplementedError
+    if minutes > MAX_CONTOUR_MINUTES:
+        raise ValueError(
+            f"Mapbox caps a contour at {MAX_CONTOUR_MINUTES} minutes; "
+            f"{minutes} was requested. Split the analysis or use a nearer "
+            f"catchment rather than accepting a silently truncated one."
+        )
+
+    data = get_json(
+        MAPBOX_ISOCHRONE_URL.format(profile=profile, lng=lng, lat=lat),
+        service="Mapbox Isochrone",
+        params={
+            "contours_minutes": minutes,
+            "polygons": "true",
+            "denoise": denoise,
+            "access_token": access_token,
+        },
+    )
+    features = data.get("features") or []
+    if not features:
+        raise ApiError("Mapbox Isochrone", 200, "no contour returned for this origin")
+
+    geometry = features[0]["geometry"]
+    warnings: list[str] = []
+
+    if geometry["type"] == "MultiPolygon":
+        # A fragmented catchment is real -- a pocket reachable only by one road
+        # -- so the discarded area is reported rather than silently dropped.
+        rings = [poly[0] for poly in geometry["coordinates"]]
+        areas = [polygon_area_sq_km(r) for r in rings]
+        ring = rings[areas.index(max(areas))]
+        discarded = sum(areas) - max(areas)
+        warnings.append(
+            f"The isochrone came back in {len(rings)} disconnected pieces. Only "
+            f"the largest ({max(areas):.1f} km2) was analysed; {discarded:.1f} "
+            f"km2 of reachable area in {len(rings) - 1} other piece(s) was "
+            f"excluded, so demand and supply are both understated."
+        )
+    else:
+        ring = geometry["coordinates"][0]
+
+    if ring[0] != ring[-1]:
+        ring = list(ring) + [ring[0]]
+
+    traffic_aware = profile == "driving-traffic"
+    if not traffic_aware:
+        warnings.append(
+            "The catchment was generated from a free-flow driving profile with "
+            "no live traffic. At peak hours the real reach is smaller than this "
+            "polygon, so both the household count and the competitor set are "
+            "upper bounds."
+        )
+
+    catchment = {
+        "origin": {"lat": lat, "lng": lng},
+        "minutes": minutes,
+        "profile": profile,
+        "polygon": {"type": "Polygon", "coordinates": [ring]},
+        "area_sq_km": round(polygon_area_sq_km(ring), 2),
+        "provider": "mapbox",
+        "traffic_aware": traffic_aware,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if formatted_address:
+        catchment["origin"]["formatted_address"] = formatted_address
+    if geocode_quality:
+        catchment["origin"]["geocode_quality"] = geocode_quality
+    return catchment, warnings
+
+
+GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+
+#: Below these precisions the origin is a guess, and a catchment drawn from a
+#: guessed origin is wrong in every direction at once.
+ACCEPTABLE_GEOCODE = ("ROOFTOP", "RANGE_INTERPOLATED")
+
+
+def geocode(address: str, *, api_key: str) -> dict:
+    """Resolve an address to coordinates, refusing to proceed on a vague match.
+
+    Google returns `status` inside a 200 body, so a failure here is not an HTTP
+    error and must be checked explicitly.
+    """
+    data = get_json(
+        GEOCODE_URL, service="Google Geocoding",
+        params={"address": address, "key": api_key},
+    )
+    if data.get("status") != "OK" or not data.get("results"):
+        raise ApiError(
+            "Google Geocoding", 200,
+            f"status={data.get('status')} {data.get('error_message', '')}",
+        )
+
+    top = data["results"][0]
+    location = top["geometry"]["location"]
+    quality = top["geometry"].get("location_type", "APPROXIMATE")
+    if quality not in ACCEPTABLE_GEOCODE:
+        raise ApiError(
+            "Google Geocoding", 200,
+            f"'{address}' resolved only to {quality} precision "
+            f"({top['formatted_address']}). A catchment drawn from an "
+            f"approximate origin is unreliable in every direction; supply a "
+            f"more specific address.",
+        )
+    return {
+        "lat": location["lat"], "lng": location["lng"],
+        "formatted_address": top["formatted_address"], "quality": quality,
+    }
 
 
 def polygon_area_sq_km(ring: Sequence[Sequence[float]]) -> float:
@@ -179,12 +281,48 @@ def spot_check_traffic_divergence(
     sample_destinations: list[tuple[float, float]],
     *,
     api_key: str,
+    sample_size: int = 8,
 ) -> dict:
-    """Compare free-flow contour assumptions against real routed times.
+    """Bound how much a free-flow catchment overstates peak reach.
 
-    Routes a small sample at a weekday peak and off-peak departure time and
-    returns the ratio between them, so the memo can state how much the free-flow
-    catchment is likely overstating reach. A handful of destinations is enough
-    to bound the error and costs a fraction of re-routing everything.
+    Routes a small sample at a weekday peak and an off-peak departure and
+    returns the ratio. A handful of destinations bounds the error at a fraction
+    of the cost of re-routing everything, which is the point: this is a
+    correction factor for the memo, not a replacement catchment.
     """
-    raise NotImplementedError
+    from ..supply.routing import route_matrix, next_weekday_at
+
+    sample = sample_destinations[:sample_size]
+    if not sample:
+        return {"ratio": None, "note": "no destinations to sample"}
+
+    peak = route_matrix(
+        origin, sample, api_key=api_key,
+        routing_preference="TRAFFIC_AWARE_OPTIMAL",
+        departure_time=next_weekday_at(hour=8),
+    )
+    off = route_matrix(
+        origin, sample, api_key=api_key,
+        routing_preference="TRAFFIC_AWARE_OPTIMAL",
+        departure_time=next_weekday_at(hour=14),
+    )
+    pairs = [
+        (p["minutes"], o["minutes"])
+        for p, o in zip(peak, off)
+        if p.get("minutes") and o.get("minutes")
+    ]
+    if not pairs:
+        return {"ratio": None, "note": "no routable sample destinations"}
+
+    ratios = sorted(p / o for p, o in pairs)
+    median = ratios[len(ratios) // 2]
+    return {
+        "ratio": round(median, 3),
+        "sample_size": len(pairs),
+        "note": (
+            f"At a weekday 8am departure, trips in this catchment take "
+            f"{median:.2f}x as long as off-peak (median of {len(pairs)} "
+            f"sampled destinations). The free-flow contour therefore overstates "
+            f"peak reach by roughly that factor."
+        ),
+    }

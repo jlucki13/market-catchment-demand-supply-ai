@@ -86,13 +86,25 @@ model, and synthesis is skipped. See [docs/running-free.md](docs/running-free.md
 for per-service budgets, which field mask to use, and what the priors path gives
 up.
 
+## Running a real deal
+
+```bash
+mcds deals/my_deal.yaml --no-llm          # live data, zero model spend
+mcds deals/my_deal.yaml                   # full analysis, ~$2.40
+```
+
+Needs Google Maps, Mapbox, and Census keys in `.env` (see
+[docs/running-free.md](docs/running-free.md)); the second form also needs an
+Anthropic key.
+
 ## Status
 
-Phase 0 is complete and tested: schemas, vertical configs, the full scoring
-engine, the provenance rail, the memo renderer, and the model routing. The
-external connectors and reasoning calls are stubs carrying their full signatures,
-request shapes, and API constraints — see the build sequence in
-[docs/PRD.md §13](docs/PRD.md).
+Every connector and reasoning stage is implemented. The Google and Mapbox
+request shapes are verified against the live APIs by `scripts/probe.py`.
+
+Not built: CIM PDF extraction, batch screening, map rendering, and
+population-weighted interpolation (areal weighting ships; the block-geometry
+upgrade is additive). See [docs/PRD.md §13](docs/PRD.md).
 
 ## Layout
 

@@ -192,6 +192,56 @@ def get_client(api_key: str | None = None):
     return Anthropic(api_key=key) if key else Anthropic()
 
 
+def call_structured(
+    stage: Stage,
+    routing: RoutingConfig,
+    *,
+    system: list[dict] | str,
+    user: str,
+    schema: dict,
+    api_key: str | None = None,
+    stream: bool | None = None,
+) -> dict:
+    """Run one stage and return its parsed structured output.
+
+    Streams when the stage's effort makes a long turn likely -- at xhigh on a
+    full deal payload a non-streaming request will hit the HTTP timeout, and the
+    failure looks like a network problem rather than a too-small ceiling.
+    """
+    import json
+
+    client = get_client(api_key)
+    if stream is None:
+        stream = routing.effort.get(stage) in ("high", "xhigh", "max")
+
+    request = build_request(
+        stage, routing, system=system,
+        messages=[{"role": "user", "content": user}],
+        output_schema=schema, stream=stream,
+    )
+
+    if stream:
+        with client.messages.stream(**request) as handle:
+            response = handle.get_final_message()
+    else:
+        response = client.messages.create(**request)
+
+    check_refusal(response)
+
+    text = "".join(
+        block.text for block in response.content
+        if getattr(block, "type", None) == "text"
+    )
+    if not text.strip():
+        raise RuntimeError(
+            f"Stage '{stage}' returned no text content "
+            f"(stop_reason={getattr(response, 'stop_reason', None)})."
+        )
+    # Parse rather than string-match: current models vary their JSON escaping,
+    # and raw matching on the serialized form breaks silently.
+    return json.loads(text)
+
+
 def check_refusal(response: Any) -> None:
     """Raise if a turn ended in a refusal rather than content.
 

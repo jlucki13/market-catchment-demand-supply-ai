@@ -36,7 +36,10 @@ its fetch time. `strip_transient()` below enforces this at the storage boundary.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Iterable, Literal
+
+from ..http import ApiError, get_json, post_json
 
 AGGREGATE_URL = "https://areainsights.googleapis.com/v1:computeInsights"
 DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
@@ -152,31 +155,123 @@ def census_catchment(
     a request is ever rejected for size, use catchment.simplify_ring and record
     the tolerance, because simplification changes the area being measured.
     """
-    raise NotImplementedError
+    key = "includedPrimaryTypes" if type_filter_mode == "primary" else "includedTypes"
+    body = {
+        "insights": ["INSIGHT_COUNT", "INSIGHT_PLACES"],
+        "filter": {
+            "locationFilter": {"customArea": {"polygon": to_latlng_polygon(polygon_ring)}},
+            "typeFilter": {key: list(included_types)},
+            "operatingStatus": list(operating_status),
+        },
+    }
+    data = post_json(
+        AGGREGATE_URL, service="Places Aggregate",
+        headers={"X-Goog-Api-Key": api_key, "Content-Type": "application/json"},
+        json=body,
+    )
+    count = int(data.get("count", 0))
+    place_ids = [
+        p.get("place", "").split("/")[-1]
+        for p in (data.get("placeInsights") or [])
+    ]
+    return {
+        "count": count,
+        "place_ids": [pid for pid in place_ids if pid],
+        "complete": count <= MAX_NAMED_PLACES,
+        "type_filter_mode": type_filter_mode,
+    }
+
+
+def to_latlng_polygon(ring: list[list[float]]) -> dict:
+    """GeoJSON [lng, lat] pairs -> Google's {latitude, longitude} objects.
+
+    The trap worth naming: GeoJSON is lng-first and Google's LatLng is lat-first.
+    Swapping them produces a valid-looking request describing a polygon in the
+    wrong hemisphere, which returns zero results rather than an error -- an empty
+    catchment that looks like a genuinely empty market.
+    """
+    return {"coordinates": [{"latitude": p[1], "longitude": p[0]} for p in ring]}
 
 
 def fetch_details(
     place_ids: Iterable[str],
     *,
     api_key: str,
-    field_mask: str,
-) -> list[dict]:
+    field_mask: str = DETAIL_MASK_STANDARD,
+) -> tuple[list[dict], list[str]]:
     """Enrich a shortlist into records matching schemas/competitor.schema.json.
 
-    Notes for the build session:
-      * `reviews` returns at most 5 per place, selected by relevance rather than
-        date. The oldest of those five is a weak LOWER BOUND on business age and
-        must be labelled as such wherever it is used -- see `earliest_review_at`
-        in the competitor schema and the business-age caveat in the PRD.
-      * `openingDate` exists but only populates for businesses opening in the
-        FUTURE. It does not give you the age of an existing business.
-      * `priceLevel` is frequently absent, especially for services. Absence is
-        not "inexpensive"; leave it null.
-      * Batch with concurrency but respect per-project QPM; a 429 here mid-run
-        leaves a half-enriched catchment, so retry with backoff rather than
-        dropping the place.
+    Returns (records, warnings). A place that cannot be fetched is reported in
+    the warnings rather than silently dropped: a missing competitor understates
+    supply, and that is the direction of error that loses money.
+
+    Measured behaviour worth knowing, from a live Denver catchment:
+      * `reviews` caps at 5 per place and is excluded from the default mask --
+        it is the field that pushes the call to the most expensive tier, and it
+        feeds only the business-age guess.
+      * `openingDate` populates only for businesses opening in the FUTURE. It
+        does not give the age of an existing business.
+      * `priceLevel` was absent on 32 of 33 records. Absence is not
+        "inexpensive"; it stays null and any guidance leaning on price tier
+        does not apply.
     """
-    raise NotImplementedError
+    records: list[dict] = []
+    warnings: list[str] = []
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    for pid in place_ids:
+        try:
+            d = get_json(
+                DETAILS_URL.format(place_id=pid), service="Place Details",
+                headers={"X-Goog-Api-Key": api_key, "X-Goog-FieldMask": field_mask},
+            )
+        except ApiError as exc:
+            warnings.append(
+                f"Place {pid} could not be enriched ({exc.status}), so it is "
+                f"absent from the supply count. Supply is understated by at "
+                f"least this one record."
+            )
+            continue
+
+        location = d.get("location") or {}
+        hours = d.get("regularOpeningHours") or {}
+        reviews = d.get("reviews") or []
+        earliest = min((r.get("publishTime", "") for r in reviews), default="") or None
+
+        records.append({
+            "place_id": d.get("id", pid),
+            "persistable": False,
+            "name": (d.get("displayName") or {}).get("text"),
+            "formatted_address": d.get("formattedAddress"),
+            "location": (
+                {"lat": location["latitude"], "lng": location["longitude"]}
+                if location else None
+            ),
+            "primary_type": d.get("primaryType"),
+            "types": d.get("types") or [],
+            "rating": d.get("rating"),
+            "user_rating_count": d.get("userRatingCount"),
+            "price_level": d.get("priceLevel"),
+            "business_status": d.get("businessStatus"),
+            "open_24h": _is_open_24h(hours),
+            "earliest_review_at": earliest,
+            "fetched_at": fetched_at,
+        })
+
+    return records, warnings
+
+
+def _is_open_24h(hours: dict) -> bool | None:
+    """True when the place advertises continuous operation.
+
+    Google encodes 24-hour operation as a period with an open time and no close
+    time. Relevant for laundromats and gyms, where round-the-clock access is a
+    format distinction rather than a detail.
+    """
+    periods = hours.get("periods")
+    if not periods:
+        return None
+    return any("close" not in p for p in periods)
 
 
 _CHAIN_NOISE = re.compile(r"(#\s*\d+|\bno\.?\s*\d+\b|\b\d+\b|[^\w\s])", re.IGNORECASE)

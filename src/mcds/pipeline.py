@@ -18,7 +18,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .catchment.isochrone import fetch_isochrone, geocode
 from .config import REPO_ROOT, load_settings, load_vertical, validate
+from .demand.benchmark import resolve_benchmark
+from .demand.census import block_groups_intersecting, fetch_acs
+from .demand.interpolate import build_demographics
+from .reasoning.classify import apply_classifications, classify
+from .reasoning.claims import reconcile
+from .reasoning.client import RoutingConfig
+from .reasoning.review import review
+from .reasoning.synthesize import synthesize
+from .supply.places import census_catchment, fetch_details
+from .supply.routing import attach_drive_times
 from .moe import Estimate
 from .provenance import verify
 from .reasoning.classify import classify_from_priors
@@ -180,14 +191,16 @@ def run(
         validate(demographics, "demographics")
         census_count = len(competitors)
         benchmark = None  # fixtures carry no sourced benchmark; verdict suppresses
+        live_warnings: list[str] = []
     else:
-        catchment, demographics, competitors, census_count, benchmark = _fetch_live(
-            deal, vertical, settings
-        )
+        (catchment, demographics, competitors, census_count, benchmark,
+         live_warnings) = _fetch_live(deal, vertical, settings, use_llm=use_llm)
 
-    priors_warnings: list[str] = []
-    if not use_llm:
-        priors_warnings = apply_priors(competitors, vertical)
+    # In the live path classification already ran inside _fetch_live, because
+    # substitutability feeds the Supply Index. Only the dry run needs it here.
+    priors_warnings: list[str] = list(live_warnings)
+    if dry_run and not use_llm:
+        priors_warnings.extend(apply_priors(competitors, vertical))
 
     scorecard = score(
         deal, vertical, catchment, demographics, competitors,
@@ -195,46 +208,186 @@ def run(
         extra_warnings=priors_warnings,
     )
 
-    findings = review = None
+    findings = review_result = None
     if not dry_run and use_llm:
-        findings, review = _reason(
+        findings, review_result, reason_warnings = _reason(
             scorecard, competitors, demographics, deal, vertical, settings
         )
+        scorecard["warnings"].extend(reason_warnings)
         verify(findings, scorecard, strict=strict_provenance)
 
     memo = render_markdown(
-        scorecard, findings, deal=deal, catchment=catchment, review=review
+        scorecard, findings, deal=deal, catchment=catchment, review=review_result
     )
     return RunResult(
-        scorecard=scorecard, memo_markdown=memo, findings=findings, review=review,
+        scorecard=scorecard, memo_markdown=memo, findings=findings,
+        review=review_result,
         catchment=catchment, competitors=competitors, demographics=demographics,
     )
 
 
-def _fetch_live(deal: dict, vertical: dict, settings: dict) -> tuple[Any, ...]:
-    """Geocode, isochrone, Places census, Place Details, Routes matrix, ACS.
+def _fetch_live(
+    deal: dict, vertical: dict, settings: dict, *, use_llm: bool = True
+) -> tuple:
+    """Geocode, isochrone, competitor census, enrichment, routing, and demographics.
 
-    Order matters and each step gates the next:
-      1. geocode the address; abort on anything worse than RANGE_INTERPOLATED
-      2. isochrone from the geocoded point
-      3. Places Aggregate computeInsights over the polygon -> count + place IDs
-      4. Place Details on the shortlist (capped at settings.places.max_enriched)
-      5. Routes computeRouteMatrix, one origin to all competitors
-      6. TIGERweb block groups intersecting the polygon, then ACS on those
-      7. benchmark.resolve_benchmark against the county the origin falls in
+    Order is load-bearing. The catchment must exist before either the demand or
+    supply pull, because both are defined against that one polygon; the moment
+    either falls back to a radius they are measuring different markets and the
+    ratio between them means nothing. Classification runs before scoring because
+    substitutability is an input to the Supply Index, not a label applied after.
     """
-    raise NotImplementedError
+    credentials = settings.get("credentials") or {}
+    google = credentials.get("google_maps")
+    mapbox = credentials.get("mapbox")
+    census_key = credentials.get("census")
+    missing = [
+        name for name, value in
+        [("GOOGLE_MAPS_API_KEY", google), ("MAPBOX_ACCESS_TOKEN", mapbox),
+         ("CENSUS_API_KEY", census_key)]
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Missing credential(s): {', '.join(missing)}. Put them in .env, or "
+            f"run with --dry-run to use fixtures."
+        )
+
+    warnings: list[str] = []
+    places_cfg = settings.get("places") or {}
+    minutes = deal.get("catchment_minutes") or vertical["catchment"]["default_minutes"]
+
+    # 1-2. Origin and catchment.
+    origin = geocode(deal["address"], api_key=google)
+    catchment, iso_warnings = fetch_isochrone(
+        origin["lat"], origin["lng"], minutes,
+        profile=vertical["catchment"].get("profile", "driving"),
+        access_token=mapbox,
+        formatted_address=origin["formatted_address"],
+        geocode_quality=origin["quality"],
+    )
+    warnings.extend(iso_warnings)
+    validate(catchment, "catchment")
+    ring = catchment["polygon"]["coordinates"][0]
+
+    # 3-4. Supply census, then enrichment of the shortlist.
+    places = vertical["places"]
+    census = census_catchment(
+        ring,
+        places["direct_types"] + places.get("adjacent_types", []),
+        api_key=google,
+        type_filter_mode=places.get("type_filter_mode", "primary"),
+    )
+    cap = places_cfg.get("max_enriched", 100)
+    competitors, detail_warnings = fetch_details(
+        census["place_ids"][:cap], api_key=google,
+    )
+    warnings.extend(detail_warnings)
+
+    # 5. Drive times for the whole catchment in one request.
+    warnings.extend(attach_drive_times(
+        competitors, (origin["lat"], origin["lng"]), api_key=google,
+    ))
+
+    # 6. Substitutability -- before scoring, because it feeds the Supply Index.
+    chains = detect_chains(competitors)
+    for competitor in competitors:
+        competitor.setdefault("chain_group", chains.get(competitor["place_id"]))
+    if use_llm:
+        routing = RoutingConfig.from_settings(settings)
+        result, classify_warnings = classify(
+            competitors, vertical, routing,
+            api_key=(settings.get("credentials") or {}).get("anthropic"),
+        )
+        apply_classifications(competitors, result)
+        warnings.extend(classify_warnings)
+        for concern in result.get("coverage_concerns", []) or []:
+            warnings.append(f"Coverage concern: {concern}")
+    else:
+        warnings.extend(apply_priors(competitors, vertical))
+
+    # 7-8. Demand: block groups intersecting the same polygon, then ACS.
+    census_cfg = settings.get("census") or {}
+    vintage = census_cfg.get("vintage", 2023)
+    dimensions = [
+        f["dimension"] for f in (vertical.get("demand", {}).get("filters") or [])
+    ]
+    block_groups = block_groups_intersecting(ring, vintage=vintage)
+    if not block_groups:
+        raise RuntimeError(
+            "No Census block groups intersect this catchment. That usually means "
+            "the polygon is outside the United States or the coordinate order "
+            "was swapped somewhere upstream."
+        )
+    acs = fetch_acs(
+        block_groups, dimensions + ["households_total"],
+        api_key=census_key, vintage=vintage,
+        dataset=census_cfg.get("dataset", "acs/acs5"),
+    )
+    demographics, demand_warnings = build_demographics(
+        ring, block_groups, acs, dimensions, vintage=vintage,
+    )
+    warnings.extend(demand_warnings)
+    validate(demographics, "demographics")
+
+    # 9. Benchmark, from the county the origin falls in.
+    county = _dominant_county(block_groups)
+    benchmark = resolve_benchmark(
+        vertical, county_fips=county, api_key=census_key,
+    )
+    if benchmark is None:
+        warnings.append(
+            "No sustainability benchmark could be derived for this county and "
+            "NAICS code, so the over/under-served verdict stays suppressed."
+        )
+
+    return catchment, demographics, competitors, census["count"], benchmark, warnings
+
+
+def _dominant_county(block_groups: list[dict]) -> tuple[str, str] | None:
+    """The county most of the catchment sits in, for benchmark derivation.
+
+    A catchment spanning a county line gets the county holding the most block
+    groups. The benchmark is a coarse denominator and the difference between
+    neighbouring counties is smaller than its own confidence interval.
+    """
+    from collections import Counter
+
+    counties = Counter(
+        (bg["state"], bg["county"]) for bg in block_groups
+        if bg.get("state") and bg.get("county")
+    )
+    return counties.most_common(1)[0][0] if counties else None
 
 
 def _reason(
     scorecard: dict, competitors: list[dict], demographics: dict,
     deal: dict, vertical: dict, settings: dict,
-) -> tuple[dict, dict]:
-    """Classification, synthesis, adversarial review.
+) -> tuple[dict, dict | None, list[str]]:
+    """Synthesis and adversarial review over a finished scorecard.
 
-    Note classification must run BEFORE score(), not here -- substitutability is
-    an input to the Supply Index. This function covers only the stages that read
-    a finished scorecard. Wiring it in live means calling classify() inside
-    _fetch_live's step 4/5 window, once details are in and before routing.
+    Classification is not here: it runs inside _fetch_live, because
+    substitutability is an input to the Supply Index rather than a comment on it.
     """
-    raise NotImplementedError
+    routing = RoutingConfig.from_settings(settings)
+    api_key = (settings.get("credentials") or {}).get("anthropic")
+    warnings: list[str] = []
+
+    claims = deal.get("seller_claims") or {"claims": []}
+    reconciled = reconcile(claims, scorecard, demographics)
+    enriched_claims = {"claims": claims.get("claims", []), "reconciled": reconciled}
+
+    findings, synth_warnings = synthesize(
+        scorecard, competitors, demographics, enriched_claims, vertical,
+        routing, api_key=api_key,
+    )
+    warnings.extend(synth_warnings)
+
+    review_result = None
+    if settings.get("reasoning", {}).get("adversarial_review", True):
+        review_result, review_warnings = review(
+            findings, scorecard, routing, api_key=api_key,
+        )
+        warnings.extend(review_warnings)
+
+    return findings, review_result, warnings

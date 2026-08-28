@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from .client import RoutingConfig, build_request, cached_system, check_refusal, get_client
+from .client import RoutingConfig, cached_system, call_structured
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "classification.schema.json"
 
@@ -178,11 +178,75 @@ def classify(
     routing: RoutingConfig,
     *,
     api_key: str | None = None,
-) -> dict:
+) -> tuple[dict, list[str]]:
     """Classify a catchment's competitors in one call.
 
-    Validates that every place_id came back before returning: a silently dropped
-    competitor understates supply, which is the direction of error that loses
-    money.
+    Returns (result, warnings). Validates that every place_id came back before
+    returning: a silently dropped competitor understates supply, which is the
+    direction of error that loses money. Anything missing is filled from config
+    priors and reported rather than left absent.
     """
-    raise NotImplementedError
+    if not competitors:
+        return {"classifications": [], "coverage_concerns": []}, []
+
+    system, user = build_prompt(competitors, vertical)
+    result = call_structured(
+        "classify", routing, system=system, user=user,
+        schema=load_schema(), api_key=api_key,
+    )
+
+    warnings: list[str] = []
+    returned = {c["place_id"] for c in result.get("classifications", [])}
+    expected = {c["place_id"] for c in competitors}
+
+    missing = expected - returned
+    if missing:
+        fallback = classify_from_priors(
+            [c for c in competitors if c["place_id"] in missing], vertical
+        )
+        result["classifications"].extend(fallback["classifications"])
+        warnings.append(
+            f"The classifier did not return {len(missing)} of {len(expected)} "
+            f"competitors. Those fell back to config priors and are tagged low "
+            f"confidence; supply for them is category-level only."
+        )
+
+    unexpected = returned - expected
+    if unexpected:
+        result["classifications"] = [
+            c for c in result["classifications"] if c["place_id"] in expected
+        ]
+        warnings.append(
+            f"The classifier returned {len(unexpected)} place_id(s) that were "
+            f"not in the catchment. They were discarded."
+        )
+
+    overrides = [c for c in result["classifications"] if c.get("overrode_prior")]
+    if overrides:
+        warnings.append(
+            f"The classifier overrode the vertical config prior on "
+            f"{len(overrides)} competitor(s). Reasons are recorded on each record."
+        )
+    low = [c for c in result["classifications"] if c.get("confidence") == "low"]
+    if low:
+        warnings.append(
+            f"{len(low)} competitor classification(s) are low confidence, "
+            f"usually because the business type is unclear from the name or "
+            f"price tier is missing."
+        )
+    return result, warnings
+
+
+def apply_classifications(competitors: list[dict], result: dict) -> None:
+    """Write classification results onto the competitor records in place."""
+    by_id = {c["place_id"]: c for c in result.get("classifications", [])}
+    for competitor in competitors:
+        decision = by_id.get(competitor["place_id"])
+        if not decision:
+            continue
+        competitor["substitutability"] = decision["substitutability"]
+        competitor["substitutability_reason"] = decision.get("reason")
+        competitor["classifier_confidence"] = decision.get("confidence")
+        competitor["overrode_prior"] = decision.get("overrode_prior", False)
+        if decision.get("chain_group"):
+            competitor["chain_group"] = decision["chain_group"]

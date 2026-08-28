@@ -11,7 +11,7 @@ A model reviewing its own output tends to ratify it.
 
 from __future__ import annotations
 
-from .client import RoutingConfig, build_request, cached_system, check_refusal, get_client
+from .client import RoutingConfig, cached_system, call_structured
 
 SYSTEM_PROMPT = """\
 You are reviewing a draft market memo before it reaches an acquisition buyer. \
@@ -44,18 +44,84 @@ unhelpful as an empty one.
 """
 
 
+REVIEW_SCHEMA = {
+    "type": "object",
+    "required": ["challenges", "omissions", "sustained"],
+    "additionalProperties": False,
+    "properties": {
+        "challenges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["flag_index", "challenge", "severity"],
+                "additionalProperties": False,
+                "properties": {
+                    "flag_index": {"type": "integer"},
+                    "challenge": {"type": "string", "maxLength": 600},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["undermines", "weakens", "nitpick"],
+                    },
+                },
+            },
+        },
+        "omissions": {
+            "type": "array",
+            "description": "Findings visible in the data that the memo missed.",
+            "items": {"type": "string"},
+        },
+        "sustained": {
+            "type": "array",
+            "description": "Flag indices that hold up under challenge.",
+            "items": {"type": "integer"},
+        },
+    },
+}
+
+
 def review(
     findings: dict,
     scorecard: dict,
     routing: RoutingConfig,
     *,
     api_key: str | None = None,
-) -> dict:
-    """Return {"challenges": [...], "omissions": [...], "sustained": [...]}.
+) -> tuple[dict, list[str]]:
+    """Challenge the memo's reasoning with an independent model.
 
-    Challenges are surfaced in the memo's own review section rather than silently
-    applied. A buyer benefits from seeing that a flag was contested and why; a
-    memo quietly edited to survive review has lost the disagreement that made it
-    worth reading.
+    Challenges are surfaced in the memo's own review section rather than
+    silently applied. A buyer benefits from seeing that a flag was contested and
+    why; a memo quietly edited to survive review has lost the disagreement that
+    made it worth reading.
     """
-    raise NotImplementedError
+    import json
+
+    payload = {
+        "findings": findings,
+        "scorecard_warnings": scorecard.get("warnings", []),
+        "balance": scorecard.get("balance"),
+        "demand": scorecard.get("demand"),
+        "supply": scorecard.get("supply"),
+    }
+    result = call_structured(
+        "review", routing,
+        system=cached_system(SYSTEM_PROMPT),
+        user="Review this draft.\n\n" + json.dumps(payload, indent=2, default=str),
+        schema=REVIEW_SCHEMA, api_key=api_key,
+    )
+
+    warnings: list[str] = []
+    undermining = [
+        c for c in result.get("challenges", []) if c.get("severity") == "undermines"
+    ]
+    if undermining:
+        warnings.append(
+            f"The review stage judged {len(undermining)} flag(s) to be "
+            f"undermined by the evidence they cite. Those challenges appear in "
+            f"the memo and were not silently resolved."
+        )
+    if result.get("omissions"):
+        warnings.append(
+            f"The review stage identified {len(result['omissions'])} finding(s) "
+            f"visible in the data that the memo did not raise."
+        )
+    return result, warnings
