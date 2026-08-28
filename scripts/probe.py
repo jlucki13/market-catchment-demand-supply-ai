@@ -602,6 +602,43 @@ def check_keys() -> int:
             message = data.get("error_message", r.text[:200])
             results["Google"] = f"FAILED -- {status}: {message}\n{google_hint(status, message)}"
 
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        results["Anthropic"] = "not set"
+    else:
+        try:
+            from anthropic import Anthropic
+        except ImportError:
+            results["Anthropic"] = (
+                "FAILED -- the `anthropic` package is not installed\n"
+                "      -> pip install -e \".[reasoning]\""
+            )
+        else:
+            # models.retrieve is free and validates both the credential and that
+            # each configured model is actually available to this org -- a model
+            # ID that is real but not enabled fails here rather than mid-run.
+            from mcds.reasoning.client import RoutingConfig
+
+            client = Anthropic(api_key=anthropic_key)
+            routing = RoutingConfig.from_settings({})
+            checked, failed = [], []
+            for stage, model in sorted(set(routing.models.items()), key=lambda x: x[1]):
+                if model in checked or model in [f[0] for f in failed]:
+                    continue
+                try:
+                    client.models.retrieve(model)
+                    checked.append(model)
+                except Exception as exc:  # noqa: BLE001 - reporting, not handling
+                    failed.append((model, str(exc)[:90]))
+            if failed:
+                detail = "; ".join(f"{m}: {e}" for m, e in failed)
+                results["Anthropic"] = f"FAILED -- {detail}"
+            else:
+                results["Anthropic"] = (
+                    f"OK -- key valid, {len(checked)} model(s) available: "
+                    + ", ".join(checked)
+                )
+
     for service, outcome in results.items():
         marker = {"OK": "  OK ", "no": "  -- ", "FA": "  !! "}[outcome[:2]]
         print(f"{marker}{service:<8} {outcome}")
@@ -620,6 +657,14 @@ def check_keys() -> int:
     if "Google" in unset or "Mapbox" in unset:
         print("\nThe full probe needs both Mapbox and Google. Until then, try:")
         print("  mcds examples/sample_deal.yaml --dry-run --no-llm")
+    elif "Anthropic" in unset:
+        print("\nEverything the free path needs is working. Run a real deal at "
+              "zero model cost:")
+        print("  mcds <deal>.yaml --no-llm")
+    else:
+        print("\nAll services ready. Validate the data plumbing first at $0:")
+        print("  mcds <deal>.yaml --no-llm")
+        print("then drop --no-llm for the full analysis (~$2.40/deal).")
     return 0
 
 

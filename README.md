@@ -19,7 +19,7 @@ and Windows, and puts `mcds` on your path:
 python -m venv .venv                       # optional but recommended
 source .venv/bin/activate                  # Windows: .venv\Scripts\Activate.ps1
 
-pip install -e ".[dev]"
+pip install -e ".[dev,reasoning]"   # drop `reasoning` if using --no-llm only
 mcds examples/sample_deal.yaml --dry-run
 pytest -q                                  # 53 tests
 ```

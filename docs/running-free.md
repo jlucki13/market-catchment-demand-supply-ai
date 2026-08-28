@@ -188,6 +188,20 @@ Google's free tier already covers 16–83 deals a month. Trading away the
 entrenchment signal to avoid putting a card on file is a bad deal unless you
 genuinely cannot use Google at all.
 
+## Verifying an Anthropic key
+
+`probe.py --check` validates it for free. It calls the Models API rather than
+generating anything, which confirms three things at once: the credential works,
+the `anthropic` package is installed, and every model named in your settings is
+actually available to your organisation. A model ID that is real but not enabled
+for your org fails here rather than halfway through a deal run.
+
+The package is not in the `dev` extra:
+
+```bash
+pip install -e ".[reasoning]"
+```
+
 ## Setting the keys
 
 Copy `.env.example` to `.env` and fill in what you have. It is gitignored, and
