@@ -13,6 +13,13 @@ WIDE_MOE_THRESHOLD = 0.30
 #: How many competitors to name in `supply.strongest`.
 STRONGEST_N = 10
 
+#: A catchment holding more than this share of its whole county's establishments
+#: for the same industry is not credible. County Business Patterns counts real
+#: firms with payroll; a drive-time catchment is a small slice of a county, so a
+#: direct-competitor count approaching the county total means the census pulled
+#: in businesses that are not in this industry at all.
+IMPLAUSIBLE_COUNTY_SHARE = 0.5
+
 
 def build_scorecard(
     *,
@@ -46,6 +53,33 @@ def build_scorecard(
         )
     if geography and geography.notes:
         warnings.extend(geography.notes)
+
+    # Cross-check the supply census against an independent source. CBP counts
+    # establishments with payroll under a specific NAICS code; the Places census
+    # counts whatever Google files under a type. When the two disagree sharply
+    # the Places bucket is contaminated, and that is worth saying out loud
+    # rather than leaving in the numbers.
+    establishments = (balance.benchmark or {}).get("establishments")
+    if establishments:
+        direct = supply.by_substitutability.get("direct", 0)
+        where = (balance.benchmark or {}).get("reference_geography", "the county")
+        if direct > establishments:
+            warnings.append(
+                f"This catchment shows {direct} direct competitor(s), but County "
+                f"Business Patterns records only {establishments} establishment(s) "
+                f"in this industry across all of {where}. A catchment cannot "
+                f"hold more of an industry than its county does, so the supply "
+                f"census has pulled in businesses that are not in it. Treat the "
+                f"Supply Index as an overstatement."
+            )
+        elif direct > establishments * IMPLAUSIBLE_COUNTY_SHARE:
+            warnings.append(
+                f"This catchment accounts for {direct} of the {establishments} "
+                f"establishments County Business Patterns records for this "
+                f"industry across {where} ({direct / establishments:.0%}). "
+                f"That concentration is possible in a dense urban core but is "
+                f"worth verifying before relying on the supply count."
+            )
 
     strongest = sorted(supply.scored, key=lambda s: s.weight, reverse=True)[:STRONGEST_N]
 

@@ -115,6 +115,9 @@ def render_markdown(
     if b.get("verdict_reason"):
         a(b["verdict_reason"])
         a("")
+    if bench.get("caveat"):
+        a(f"*{bench['caveat']}*")
+        a("")
 
     a("### Supply composition")
     a("")

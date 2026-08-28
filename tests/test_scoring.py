@@ -351,6 +351,100 @@ def test_verdict_bands(supply_index, expected):
     assert compute_balance(demand, supply, sourced).verdict == expected
 
 
+# --- CBP cross-check --------------------------------------------------------
+
+
+CBP_BENCHMARK = {
+    "households_per_location": 15694, "method": "cbp_derived",
+    "source": "CBP 2022", "source_url": "u", "vintage": 2022,
+    "confidence": "medium", "establishments": 21,
+    "reference_geography": "county 08031",
+}
+
+
+def _card_with_direct(n: int) -> dict:
+    from mcds.scoring.scorecard import build_scorecard
+
+    demand = compute_demand_index(
+        {"households": Estimate(20000, 2000), "distributions": {}},
+        {"demand": {"filters": []}},
+    )
+    supply = compute_supply_index(
+        [_competitor(f"c{i}") for i in range(n)], catchment_minutes=10.0
+    )
+    return build_scorecard(
+        deal_id="t", vertical="laundromat", demand=demand, supply=supply,
+        balance=compute_balance(demand, supply, CBP_BENCHMARK),
+    )
+
+
+def test_supply_exceeding_the_whole_county_is_impossible_and_flagged():
+    """A catchment cannot hold more of an industry than its county does.
+
+    County Business Patterns counts establishments with payroll under a specific
+    NAICS code. When the Places census exceeds that, it has pulled in businesses
+    that are not in the industry -- which is exactly what an unclassified
+    `laundry` bucket does.
+    """
+    warnings = _card_with_direct(33)["warnings"]
+    assert any("cannot" in w and "Business Patterns" in w for w in warnings)
+
+
+def test_implausible_county_share_is_flagged_more_softly():
+    warnings = _card_with_direct(12)["warnings"]
+    hits = [w for w in warnings if "Business Patterns" in w]
+    assert hits and "worth verifying" in hits[0]
+
+
+def test_a_plausible_count_draws_no_cross_check_warning():
+    """After classification the count should sit comfortably under the county total."""
+    warnings = _card_with_direct(9)["warnings"]
+    assert not any("Business Patterns" in w for w in warnings)
+
+
+def test_cross_check_is_skipped_without_an_establishment_count():
+    from mcds.scoring.scorecard import build_scorecard
+
+    demand = compute_demand_index(
+        {"households": Estimate(20000, 2000), "distributions": {}},
+        {"demand": {"filters": []}},
+    )
+    supply = compute_supply_index(
+        [_competitor(f"c{i}") for i in range(50)], catchment_minutes=10.0
+    )
+    card = build_scorecard(
+        deal_id="t", vertical="laundromat", demand=demand, supply=supply,
+        balance=compute_balance(demand, supply, None),
+    )
+    assert not any("Business Patterns" in w for w in card["warnings"])
+
+
+def test_geography_parameter_survives_the_cross_check():
+    """Regression: a local named `geography` shadowed the parameter."""
+    from mcds.scoring.geography import analyze_geography
+    from mcds.scoring.scorecard import build_scorecard
+
+    demand = compute_demand_index(
+        {"households": Estimate(20000, 2000), "distributions": {}},
+        {"demand": {"filters": []}},
+    )
+    competitors = [
+        {"place_id": f"c{i}", "name": f"c{i}", "substitutability": "direct",
+         "rating": 4.2, "user_rating_count": 150, "drive_time_minutes": 5,
+         "location": {"lat": 39.740 + 0.002 * i, "lng": -105.04}, "weight": 1.0}
+        for i in range(4)
+    ]
+    supply = compute_supply_index(competitors, catchment_minutes=10.0)
+    ring = [[-105.06, 39.72], [-105.02, 39.72], [-105.02, 39.76],
+            [-105.06, 39.76], [-105.06, 39.72]]
+    card = build_scorecard(
+        deal_id="t", vertical="laundromat", demand=demand, supply=supply,
+        balance=compute_balance(demand, supply, CBP_BENCHMARK),
+        geography=analyze_geography(ring, competitors, eps_km=0.4),
+    )
+    assert "geography" in card and "clusters" in card["geography"]
+
+
 # --- margins of error -------------------------------------------------------
 
 
